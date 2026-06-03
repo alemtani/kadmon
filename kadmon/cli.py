@@ -59,7 +59,7 @@ def chat(model, provider, aws_region):
     from kadmon.tools import build_index, create_default_registry
     from kadmon.agent import AgentLoop
     from kadmon.human import CLIChannel
-    from kadmon.cli_display import StreamDisplay
+    from kadmon.cli_display import StreamDisplay, SlashAction, handle_slash_command
 
     repo_path = os.path.abspath(".")
     _provider = provider or DEFAULT_PROVIDER
@@ -94,6 +94,33 @@ def chat(model, provider, aws_region):
         while True:
             task = input("> ").strip()
             if not task:
+                continue
+            # Handle slash commands
+            if task.startswith("/"):
+                result = handle_slash_command(task)
+                if result.action == SlashAction.EXIT:
+                    click.echo("Bye.")
+                    break
+                elif result.action == SlashAction.CLEAR:
+                    agent = AgentLoop(
+                        provider=llm,
+                        tools=tools,
+                        librarian=librarian,
+                        session_tracker=session_tracker,
+                        channel=channel,
+                        repo_root=repo_path,
+                        display=display,
+                    )
+                    first_prompt = True
+                    click.echo("Context cleared.")
+                elif result.action == SlashAction.STATUS:
+                    _print_status(repo_path)
+                elif result.action == SlashAction.CHECKPOINTS:
+                    _print_checkpoints(repo_path)
+                elif result.action == SlashAction.MODEL:
+                    click.echo(f"Provider: {_provider}  Model: {_model}")
+                elif result.action in (SlashAction.HELP, SlashAction.UNKNOWN):
+                    click.echo(result.message)
                 continue
             conv_history.snapshot(task, [], None)
             if first_prompt:
@@ -300,6 +327,14 @@ def bench(languages, limit, output, model, provider, aws_region, setup, workers)
 @click.option("--global", "show_global", is_flag=True, help="Show sessions across all projects")
 def status(repo: str, show_global: bool):
     """Show current session state and library summary."""
+    _print_status(repo, show_global)
+
+
+def _print_status(repo: str = ".", show_global: bool = False) -> None:
+    """Core logic for showing session state and library summary.
+
+    Called by both the Click command and the /status slash handler.
+    """
     if show_global:
         from kadmon.memory.central_index import CentralIndex
         index = CentralIndex()
@@ -441,9 +476,17 @@ def rollback(checkpoint_id):
 @main.command()
 def checkpoints():
     """List available file checkpoints."""
+    _print_checkpoints()
+
+
+def _print_checkpoints(repo: str = ".") -> None:
+    """Core logic for listing checkpoints.
+
+    Called by both the Click command and the /checkpoints slash handler.
+    """
     from kadmon.checkpoints import CheckpointManager
 
-    repo_path = os.path.abspath(".")
+    repo_path = os.path.abspath(repo)
     mgr = CheckpointManager(repo_path)
     cps = mgr.list()
     if not cps:
