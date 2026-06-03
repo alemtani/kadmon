@@ -8,8 +8,12 @@ from kadmon.tools.base import ToolRegistry
 from kadmon.agent.context import ContextManager
 from kadmon.agent.prompts import SYSTEM_PROMPT, ARCHITECT_PROMPT, EDITOR_PROMPT
 from kadmon.agent.recovery import LoopDetector
+from kadmon.checkpoints import CheckpointManager
 from kadmon.tools.plan import PlanTool
 from kadmon.memory.session_log import SessionLogger
+
+# Default max retries for verification-triggered rollback
+_VERIFY_RETRY_MAX = 2
 
 if TYPE_CHECKING:
     from kadmon.human.channel import HumanChannel
@@ -49,6 +53,8 @@ class AgentLoop:
         channel: HumanChannel | None = None,
         repo_root: str = ".",
         display=None,
+        checkpoint_manager: CheckpointManager | None = None,
+        verify_retry_max: int = _VERIFY_RETRY_MAX,
     ):
         self.provider = provider
         self.tools = tools
@@ -61,6 +67,12 @@ class AgentLoop:
         self._repo_root = repo_root
         self.context = ContextManager()
         self.loop_detector = LoopDetector()
+        # Verification-first inner loop: rollback + retry on verify failure.
+        # Falls back to the registry's shared checkpoint manager (the one the
+        # edit tools use) so rollback sees the checkpoints those tools create.
+        self._verify_retry_count = 0
+        self._verify_retry_max = verify_retry_max
+        self._checkpoint_mgr = checkpoint_manager or getattr(tools, "checkpoint_manager", None)
         # Handoff system (autonomous context management)
         self._handoff_monitor = None
         self._handoff_manager = None
@@ -278,6 +290,31 @@ class AgentLoop:
             )
 
         self.context.add(Message(role="user", content=tool_results))
+
+        # Verification-first inner loop: rollback + retry on verify failure
+        verify_failed = False
+        verify_output = ""
+        for tc, tr in zip(response.tool_calls, tool_results):
+            if tc.name == "verify" and tr.get("is_error"):
+                verify_failed = True
+                verify_output = tr.get("content", "")
+                break
+
+        if verify_failed and self._checkpoint_mgr and self._verify_retry_count < self._verify_retry_max:
+            restored = self._checkpoint_mgr.rollback()
+            self._verify_retry_count += 1
+            retry_msg = (
+                f"VERIFICATION FAILED (attempt {self._verify_retry_count}/{self._verify_retry_max}). "
+                f"Files rolled back: {restored or 'none'}. "
+                f"Try a different approach to fix the issue.\n\n"
+                f"Failure output:\n{verify_output[:1500]}"
+            )
+            self.context.add(Message(role="user", content=retry_msg))
+            return None
+
+        # Reset verify retry count on successful verification
+        if any(tc.name == "verify" for tc in response.tool_calls) and not verify_failed:
+            self._verify_retry_count = 0
 
         # Auto-save on plan step completion
         if self.librarian and self._plan_tool.plan:

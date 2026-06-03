@@ -22,6 +22,9 @@ def create_default_registry(repo_root: str, db: SymbolDB | None = None, provider
     registry = ToolRegistry()
     cache = ReadCache()
     checkpoint_mgr = CheckpointManager(repo_root)
+    # Expose the edit tools' checkpoint manager so AgentLoop's verification-first
+    # inner loop can roll back the same checkpoints those tools create.
+    registry.checkpoint_manager = checkpoint_mgr
     registry.register(ReadFileTool(repo_root, read_cache=cache))
     registry.register(WriteFileTool(repo_root, read_cache=cache, checkpoint_manager=checkpoint_mgr))
     registry.register(EditFileTool(repo_root, read_cache=cache, checkpoint_manager=checkpoint_mgr))
