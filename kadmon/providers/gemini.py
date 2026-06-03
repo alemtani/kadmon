@@ -2,8 +2,9 @@
 
 import time
 import uuid
+from collections.abc import Iterator
 
-from kadmon.providers.base import LLMResponse, Message, TokenUsage, ToolCall
+from kadmon.providers.base import LLMResponse, Message, StreamChunk, StreamEvent, TokenUsage, ToolCall
 
 _MAX_RETRIES = 3
 
@@ -36,6 +37,72 @@ class GeminiProvider:
         config = types.GenerateContentConfig(**config_kwargs)
         response = self._call_with_retry(contents, config)
         return self._parse_response(response)
+
+    def stream(
+        self, messages: list[Message], tools: list[dict] | None = None, system: str = ""
+    ) -> Iterator[StreamChunk]:
+        """Stream response chunks as they arrive."""
+        from google.genai import types
+
+        contents = [self._convert_message(msg) for msg in messages]
+        config_kwargs: dict = {"max_output_tokens": self.max_tokens}
+        if system:
+            config_kwargs["system_instruction"] = system
+        if tools:
+            config_kwargs["tools"] = [self._convert_tools(tools)]
+
+        config = types.GenerateContentConfig(**config_kwargs)
+        response_stream = self.client.models.generate_content_stream(
+            model=self.model, contents=contents, config=config
+        )
+        yield from self._process_stream(response_stream)
+
+    def _process_stream(self, response_stream) -> Iterator[StreamChunk]:
+        """Process Gemini streaming chunks into StreamChunk events."""
+        content_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+        input_tokens = 0
+        output_tokens = 0
+        stop_reason = ""
+
+        for chunk in response_stream:
+            if chunk.usage_metadata:
+                input_tokens = chunk.usage_metadata.prompt_token_count or 0
+                output_tokens = chunk.usage_metadata.candidates_token_count or 0
+
+            if not chunk.candidates:
+                continue
+
+            candidate = chunk.candidates[0]
+            if candidate.finish_reason:
+                stop_reason = candidate.finish_reason.name
+
+            if not candidate.content or not candidate.content.parts:
+                continue
+
+            for part in candidate.content.parts:
+                if part.text:
+                    content_parts.append(part.text)
+                    yield StreamChunk(event=StreamEvent.TEXT_DELTA, text=part.text)
+                elif part.function_call:
+                    fc = part.function_call
+                    tc_id = uuid.uuid4().hex[:8]
+                    args = dict(fc.args) if fc.args else {}
+                    yield StreamChunk(
+                        event=StreamEvent.TOOL_START, tool_name=fc.name, tool_id=tc_id
+                    )
+                    tool_calls.append(ToolCall(id=tc_id, name=fc.name, arguments=args))
+                    yield StreamChunk(
+                        event=StreamEvent.TOOL_END, tool_name=fc.name, tool_id=tc_id
+                    )
+
+        response = LLMResponse(
+            content="".join(content_parts),
+            tool_calls=tool_calls,
+            usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
+            stop_reason=stop_reason,
+        )
+        yield StreamChunk(event=StreamEvent.DONE, response=response)
 
     def _convert_message(self, msg: Message):
         from google.genai import types
