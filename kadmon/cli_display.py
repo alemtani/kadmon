@@ -6,6 +6,7 @@ import re
 import sys
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.markup import escape
@@ -13,6 +14,10 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from kadmon.providers.base import StreamChunk, StreamEvent
+
+if TYPE_CHECKING:
+    from kadmon.agent.context import ContextStats
+    from kadmon.agent.loop import UsageSummary
 
 console = Console()
 
@@ -28,6 +33,8 @@ class SlashAction(Enum):
     STATUS = "status"
     CHECKPOINTS = "checkpoints"
     MODEL = "model"
+    CONTEXT = "context"
+    COST = "cost"
     EXIT = "exit"
     UNKNOWN = "unknown"
 
@@ -46,6 +53,8 @@ _COMMANDS: dict[str, SlashAction] = {
     "/status": SlashAction.STATUS,
     "/checkpoints": SlashAction.CHECKPOINTS,
     "/model": SlashAction.MODEL,
+    "/context": SlashAction.CONTEXT,
+    "/cost": SlashAction.COST,
     "/exit": SlashAction.EXIT,
     "/quit": SlashAction.EXIT,
 }
@@ -55,6 +64,8 @@ Available commands:
   /help         Show this help
   /clear        Reset conversation context
   /status       Show session and library state
+  /context      Show context-window budget meter
+  /cost         Show token usage and cost estimate
   /checkpoints  List file checkpoints
   /model        Show current provider/model
   /exit, /quit  Exit kadmon"""
@@ -75,6 +86,55 @@ def handle_slash_command(cmd: str) -> SlashResult:
     if action == SlashAction.HELP:
         return SlashResult(action=SlashAction.HELP, message=_HELP_TEXT)
     return SlashResult(action=action)
+
+
+# --- Context & Cost Renderers ---
+
+
+def render_context_meter(stats: ContextStats, target_console: Console | None = None) -> None:
+    """Render a context-budget meter from a ContextStats instance.
+
+    Shows a progress bar, utilization %, token counts, and a warning if near handoff.
+    """
+    out = target_console or console
+    pct = int(stats.utilization * 100)
+    bar_width = 30
+    filled = min(int(stats.utilization * bar_width), bar_width)
+    bar = "█" * filled + "░" * (bar_width - filled)
+    color = "red" if stats.near_handoff else ("yellow" if pct >= 60 else "green")
+    out.print("\n[bold]Context Budget[/bold]")
+    out.print(f"  [{color}]{bar}[/{color}] {pct}%")
+    out.print(f"  Tokens: {stats.used_tokens:,} / {stats.max_tokens:,}")
+    out.print(f"  Messages: {stats.message_count}")
+    if stats.near_handoff:
+        out.print("  [red bold]⚠ Near handoff threshold — context reset imminent[/red bold]")
+    out.print("")
+
+
+def render_cost_summary(
+    usage: UsageSummary,
+    model: str = "",
+    pricing: dict[str, float] | None = None,
+    target_console: Console | None = None,
+) -> None:
+    """Render token usage and optional dollar cost from a UsageSummary.
+
+    pricing: if provided, a dict with keys 'input' and 'output' (price per 1M tokens).
+    """
+    out = target_console or console
+    out.print("\n[bold]Session Token Usage[/bold]")
+    out.print(f"  Input tokens:  {usage.input_tokens:,}")
+    out.print(f"  Output tokens: {usage.output_tokens:,}")
+    out.print(f"  Total tokens:  {usage.total_tokens:,}")
+    out.print(f"  Turns:         {usage.turns}")
+    if pricing and "input" in pricing and "output" in pricing:
+        input_cost = usage.input_tokens * pricing["input"] / 1_000_000
+        output_cost = usage.output_tokens * pricing["output"] / 1_000_000
+        total_cost = input_cost + output_cost
+        out.print(f"  Est. cost:     ${total_cost:.4f} ({model})")
+    else:
+        out.print("  [dim]Tip: configure [pricing] in .kadmon/config.toml for cost estimates[/dim]")
+    out.print("")
 
 
 # --- Rich Rendering Helpers ---

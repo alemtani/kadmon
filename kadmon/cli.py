@@ -7,6 +7,65 @@ from kadmon import __version__
 from kadmon.config import DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_REGION
 
 
+# --- Multiline Input Assembly (pure, testable) ---
+
+
+def assemble_multiline(lines: list[str]) -> tuple[str, bool]:
+    """Given accumulated raw input lines, determine if more input is needed.
+
+    Convention: a trailing backslash on a line means "continue on next line".
+    Returns (assembled_text, needs_more_input).
+    """
+    if not lines:
+        return ("", True)
+    last = lines[-1]
+    if last.endswith("\\"):
+        return ("", True)
+    # Join lines, stripping continuation backslashes
+    parts = []
+    for line in lines:
+        if line.endswith("\\"):
+            parts.append(line[:-1])
+        else:
+            parts.append(line)
+    return ("\n".join(parts), False)
+
+
+def _setup_readline(history_path: Path) -> None:
+    """Configure readline with persistent history."""
+    import readline
+
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        readline.read_history_file(str(history_path))
+    except (FileNotFoundError, OSError):
+        pass
+    readline.set_history_length(1000)
+
+    import atexit
+
+    def _save_history() -> None:
+        try:
+            readline.write_history_file(str(history_path))
+        except OSError:
+            pass
+
+    atexit.register(_save_history)
+
+
+def _read_user_input(prompt: str = "> ") -> str:
+    """Read user input with multiline support (trailing backslash continues)."""
+    lines: list[str] = []
+    current_prompt = prompt
+    while True:
+        line = input(current_prompt)
+        lines.append(line)
+        assembled, needs_more = assemble_multiline(lines)
+        if not needs_more:
+            return assembled
+        current_prompt = "... "
+
+
 def _make_provider(provider: str, model: str, aws_region: str):
     """Create the appropriate LLM provider."""
     if provider == "bedrock":
@@ -59,7 +118,10 @@ def chat(model, provider, aws_region):
     from kadmon.tools import build_index, create_default_registry
     from kadmon.agent import AgentLoop
     from kadmon.human import CLIChannel
-    from kadmon.cli_display import StreamDisplay, SlashAction, handle_slash_command
+    from kadmon.cli_display import (
+        StreamDisplay, SlashAction, handle_slash_command,
+        render_context_meter, render_cost_summary,
+    )
 
     repo_path = os.path.abspath(".")
     _provider = provider or DEFAULT_PROVIDER
@@ -74,10 +136,18 @@ def chat(model, provider, aws_region):
     channel = CLIChannel()
     display = StreamDisplay()
 
+    # Set up readline for history and in-line editing
+    history_path = Path(repo_path) / ".kadmon" / "history"
+    _setup_readline(history_path)
+
     click.echo("Kadmon — type your task, then press Enter. Ctrl+C to exit.\n")
+    click.echo("  Multiline: end a line with \\ to continue on the next line.\n")
 
     from kadmon.conversation import ConversationHistory
     conv_history = ConversationHistory(repo_path)
+
+    # Load pricing config if available
+    pricing = _load_pricing(repo_path)
 
     task = ""
     agent = AgentLoop(
@@ -92,7 +162,7 @@ def chat(model, provider, aws_region):
     first_prompt = True
     try:
         while True:
-            task = input("> ").strip()
+            task = _read_user_input("> ").strip()
             if not task:
                 continue
             # Handle slash commands
@@ -119,6 +189,14 @@ def chat(model, provider, aws_region):
                     _print_checkpoints(repo_path)
                 elif result.action == SlashAction.MODEL:
                     click.echo(f"Provider: {_provider}  Model: {_model}")
+                elif result.action == SlashAction.CONTEXT:
+                    render_context_meter(agent.context.stats())
+                elif result.action == SlashAction.COST:
+                    render_cost_summary(
+                        agent.usage_summary(),
+                        model=_model,
+                        pricing=pricing,
+                    )
                 elif result.action in (SlashAction.HELP, SlashAction.UNKNOWN):
                     click.echo(result.message)
                 continue
@@ -497,6 +575,30 @@ def _print_checkpoints(repo: str = ".") -> None:
         files = ", ".join(cp["files"])
         click.echo(f"  [{cp['id']}] {cp['tool']} \u2014 {files}")
     click.echo("")
+
+
+def _load_pricing(repo_path: str) -> dict[str, float] | None:
+    """Load model pricing from .kadmon/config.toml [pricing] section, if present.
+
+    Expected format in config.toml:
+        [pricing]
+        input = 3.0    # dollars per 1M input tokens
+        output = 15.0  # dollars per 1M output tokens
+
+    Returns None if not configured.
+    """
+    config_path = Path(repo_path) / ".kadmon" / "config.toml"
+    if not config_path.exists():
+        return None
+    import tomllib
+    try:
+        data = tomllib.loads(config_path.read_text())
+        pricing = data.get("pricing")
+        if pricing and "input" in pricing and "output" in pricing:
+            return {"input": float(pricing["input"]), "output": float(pricing["output"])}
+    except (ValueError, KeyError, OSError):
+        pass
+    return None
 
 
 @main.command()
