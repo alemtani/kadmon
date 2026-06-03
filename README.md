@@ -12,6 +12,19 @@ Kadmon is built on a different philosophy:
 - **Hand off context gracefully.** As a session grows, Kadmon plans handoff points — packaging completed work, decisions made, and open questions into a clean context for the next phase. No lossy compaction.
 - **Go fast on mechanics, go slow on direction.** Kadmon doesn't ask "can I edit this file?" It asks "we could approach this as a refactor or a rewrite — here's the tradeoff, which direction do you want?" Agents should automate execution and surface strategic decisions.
 
+## Vision & Roadmap
+
+Where Kadmon is going and how it gets there:
+
+- **[VISION.md](VISION.md)** — the north star: reach state-of-the-art parity, then win on
+  context management, confidence-gated autonomy, and verification-first trust.
+- **[ROADMAP.md](ROADMAP.md)** — the execution path, organized by capability horizons (parity and
+  wedge tracks). No date estimates — sequencing, not calendars.
+- **[docs/design/competitive-analysis.md](docs/design/competitive-analysis.md)** — the SOTA
+  landscape Kadmon is positioned against.
+- **[docs/design/differentiators.md](docs/design/differentiators.md)** — the three differentiators
+  grounded in actual components, with measurable success criteria.
+
 ## Install
 
 ```bash
