@@ -9,6 +9,7 @@ from kadmon.tools.file_io import ReadFileTool, WriteFileTool, EditFileTool, List
 from kadmon.tools.library import LibraryReadTool, LibraryWriteTool, LibraryStatusTool
 from kadmon.tools.references import FindReferencesTool, FindDefinitionTool
 from kadmon.tools.search import GrepSearchTool
+from kadmon.tools.git_tool import GitTool
 from kadmon.tools.shell import ShellTool
 from kadmon.tools.skeleton import FileSkeletonTool
 from kadmon.tools.submit import SubmitTool
@@ -31,6 +32,7 @@ def create_default_registry(repo_root: str, db: SymbolDB | None = None, provider
     registry.register(ListDirTool(repo_root))
     registry.register(GrepSearchTool(repo_root))
     registry.register(ShellTool(repo_root))
+    registry.register(GitTool(repo_root))
     verify_tool = VerifyTool(repo_root)
     registry.register(verify_tool)
     registry.register(SubmitTool(repo_root, verify_tool=verify_tool))
