@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,10 +16,21 @@ from kadmon.memory.session_log import SessionLogger
 # Default max retries for verification-triggered rollback
 _VERIFY_RETRY_MAX = 2
 
+
+@dataclass(frozen=True)
+class UsageSummary:
+    """Cumulative token usage across all turns in this session."""
+
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    turns: int
+
 if TYPE_CHECKING:
     from kadmon.human.channel import HumanChannel
     from kadmon.memory.librarian import Librarian
     from kadmon.memory.session_tracker import SessionTracker
+    from kadmon.providers.base import LLMResponse
 
 
 # Tools available in each mode
@@ -93,6 +105,20 @@ class AgentLoop:
             from kadmon.tools.ask_human import AskHumanTool
 
             self.tools.register(AskHumanTool(channel))
+
+        # Token accounting (cumulative across all turns)
+        self._total_input_tokens = 0
+        self._total_output_tokens = 0
+        self._turns = 0
+
+    def usage_summary(self) -> UsageSummary:
+        """Return cumulative token usage for this session."""
+        return UsageSummary(
+            input_tokens=self._total_input_tokens,
+            output_tokens=self._total_output_tokens,
+            total_tokens=self._total_input_tokens + self._total_output_tokens,
+            turns=self._turns,
+        )
 
     def run(self, task: str) -> str:
         """Run the agent loop. Returns the final patch or empty string."""
@@ -374,10 +400,20 @@ class AgentLoop:
                 self.display.handle(chunk)
                 if chunk.event == StreamEvent.DONE:
                     response = chunk.response
+            self._accumulate_usage(response)
             return response
-        return self.provider.complete(
+        response = self.provider.complete(
             messages=self.context.to_messages(), tools=tools, system=system
         )
+        self._accumulate_usage(response)
+        return response
+
+    def _accumulate_usage(self, response: LLMResponse | None) -> None:
+        """Record token usage from a model response."""
+        if response and response.usage:
+            self._total_input_tokens += response.usage.input_tokens
+            self._total_output_tokens += response.usage.output_tokens
+            self._turns += 1
 
     def _filtered_tools(self, allowed: set[str]) -> list[dict]:
         """Return tool definitions filtered to the allowed set."""

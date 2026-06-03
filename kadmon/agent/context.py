@@ -1,4 +1,17 @@
+from dataclasses import dataclass
+
 from kadmon.providers.base import Message
+
+
+@dataclass(frozen=True)
+class ContextStats:
+    """Snapshot of context-window budget state."""
+
+    used_tokens: int
+    max_tokens: int
+    utilization: float
+    message_count: int
+    near_handoff: bool
 
 # Max size for a single tool result to prevent context blowup
 MAX_MESSAGE_CHARS = 50000
@@ -50,3 +63,14 @@ class ContextManager:
     @property
     def utilization(self) -> float:
         return self._token_estimate / self.max_tokens if self.max_tokens > 0 else 0
+
+    def stats(self) -> ContextStats:
+        """Return a snapshot of current context-budget state."""
+        util = self.utilization
+        return ContextStats(
+            used_tokens=self._token_estimate,
+            max_tokens=self.max_tokens,
+            utilization=util,
+            message_count=len(self.messages),
+            near_handoff=util >= 0.8,
+        )
