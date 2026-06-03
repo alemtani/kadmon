@@ -21,11 +21,15 @@ responds to is in [docs/design/competitive-analysis.md](docs/design/competitive-
 
 Newest first. Sequencing, not a changelog — see git history for detail.
 
-- **🔨 In progress (this batch):** transparent context + cost budgeting (`/context` meter, `/cost`)
-  `[wedge]`; input ergonomics (line editor) `[parity]`; git workflow tool `[parity]`.
-- **✅ Shipped:** verification-first inner loop (rollback + retry on verify failure) `[wedge]`;
-  rich rendering (colored diffs + syntax-highlighted code blocks) `[parity]`; in-chat slash commands
-  `[parity]`; streaming parity across all four providers `[parity]`.
+- **✅ Shipped (latest batch):** transparent context + cost budgeting (`/context` meter, `/cost`
+  with config-driven pricing) `[wedge]`; input ergonomics (readline history + multiline) `[parity]`;
+  safe repo-scoped git workflow tool `[parity]`.
+- **✅ Shipped (earlier):** verification-first inner loop (rollback + retry on verify failure)
+  `[wedge]`; rich rendering (colored diffs + syntax-highlighted code blocks) `[parity]`; in-chat
+  slash commands `[parity]`; streaming parity across all four providers `[parity]`.
+- **Next candidates:** tool-activity spinners/progress `[parity]`; the "handing off now" moment +
+  ask-vs-act framing `[wedge]`; verification-as-the-gate with evidence shown in the UI `[wedge]`;
+  MCP support `[parity]`.
 - **Foundation (pre-roadmap):** ReAct loop with architect/editor phases, library team, dual-layer
   persistence, autonomous handoff, checkpoints/rewind/rollback, symbol index, parallel workers,
   eval harnesses.
@@ -40,17 +44,18 @@ live in, and — critically — makes the differentiators *visible*. Highest lev
   rendered once, highlighted). Full streamed-markdown for prose remains a later refinement.
 - `[parity]` **Tool activity UX.** Spinners/progress for long tool calls; clean, scannable
   start/result framing instead of dim text.
-- `[parity]` **🔨 Input ergonomics.** Replace bare `input()` with a real line editor — history,
-  multiline, in-line editing, paste handling, and graceful interrupt.
-- `[parity]` **✅ Slash commands.** `/help`, `/clear`, `/status`, `/checkpoints`, `/model`, `/exit`
-  shipped; `/context`, `/cost` landing this batch; `/rewind`, `/handoff`, `/library` later.
+- `[parity]` **✅ Input ergonomics.** Bare `input()` replaced with readline history + in-line
+  editing (persisted to `.kadmon/history`) and trailing-backslash multiline. Richer paste handling
+  is a later refinement.
+- `[parity]` **✅ Slash commands.** `/help`, `/clear`, `/status`, `/checkpoints`, `/model`, `/exit`,
+  plus `/context` and `/cost` now shipped; `/rewind`, `/handoff`, `/library` later.
 - `[parity]` **✅ Streaming parity.** All four providers (Anthropic, Bedrock, OpenAI, Gemini) now
   stream via a shared chunk contract.
-- `[parity]` **🔨 Cost & token display.** Surface per-session token accounting (always accurate) as
-  a live summary; optional cost estimate when model pricing is configured (no hardcoded prices).
-- `[wedge]` **🔨 Make the wedge legible in the UI.** A live **context-budget meter** (how full, how
-  close to the handoff threshold) via `/context`; the "handing off now" moment and ask-vs-act
-  framing follow.
+- `[parity]` **✅ Cost & token display.** `/cost` shows per-session token accounting (always
+  accurate); a dollar estimate appears only when model pricing is set in config (no hardcoded prices).
+- `[wedge]` **✅ Make the wedge legible in the UI.** A live **context-budget meter** (`/context`:
+  bar, utilization, token counts, near-handoff warning) shipped. The explicit "handing off now"
+  moment and ask-vs-act framing follow.
 
 ## Horizon 2 — Sharpen the wedge
 
@@ -59,9 +64,9 @@ Turn the three pillars from architecture into advantages a user feels and a benc
 ### Context management — handoff, don't compact
 - `[wedge]` **Handoff quality pass.** Tighten the brief the `HandoffAgent` produces (done / next /
   pointers), and make resume-from-handoff seamless and obvious to the user.
-- `[wedge]` **🔨 Transparent context budgeting.** The Horizon-1 meter, deepened: let the user inspect
-  exactly what's in context and what the next handoff will carry forward. (Backend stats + `/context`
-  meter land this batch; "what handoff carries forward" follows.)
+- `[wedge]` **✅/🔨 Transparent context budgeting.** The `/context` meter ships (used/max,
+  utilization, near-handoff warning). Still to come: letting the user inspect exactly what the next
+  handoff will carry forward.
 - `[wedge]` **Library introspection & continuity.** Commands to read/inspect the self-curating
   library; smooth the cross-session "pick up where yesterday left off" path.
 
@@ -88,9 +93,9 @@ Close the remaining table-stakes breadth and open Kadmon to the ecosystem.
 
 - `[parity]` **MCP support.** Consume external Model Context Protocol tool servers — now a
   near-universal expectation and currently absent.
-- `[parity]` **🔨 Git workflow.** Beyond producing patches: status/diff/branch/log and well-formed
-  commits (a repo-scoped `git` tool with safe defaults — no push/force/reset). PR creation follows.
-  Pulled forward as clean, independent parity work.
+- `[parity]` **✅/🔨 Git workflow.** A repo-scoped `git` tool ships with status/diff/log/branch/add/
+  commit and safe defaults (no push/force/reset; hardened against option injection). PR creation
+  still to come.
 - `[parity]` **Wider symbol index.** Extend the tree-sitter index beyond Python/JS/TS to the
   languages Kadmon already benchmarks (Go, Rust, Java, C++).
 - `[parity]` **Web & docs lookup.** A search/fetch capability so the agent can ground itself in
