@@ -625,7 +625,7 @@ def init(local):
     click.echo("\n\u2728 Kadmon Setup\n")
 
     candidates = discover()
-    click.echo("Found on this machine:")
+    click.echo("Providers ([\u2713] = credentials already on this machine):")
     for i, c in enumerate(candidates, 1):
         mark = "\u2713" if c.available else " "
         click.echo(f"  [{mark}] {i}. {c.label:16} {c.detail}")

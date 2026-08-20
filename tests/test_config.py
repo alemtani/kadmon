@@ -236,8 +236,7 @@ def test_discover_offers_grok_not_ollama(monkeypatch):
     monkeypatch.setenv("XAI_API_KEY", "xai-secret")
     candidates = discover()
     names = [c.name for c in candidates]
-    assert "grok" in names
-    assert "ollama" not in names
+    assert names == ["anthropic", "openai", "grok", "gemini", "bedrock"]
     grok = next(c for c in candidates if c.name == "grok")
     assert grok.kind == "grok"
     assert grok.available

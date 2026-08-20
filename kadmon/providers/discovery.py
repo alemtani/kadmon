@@ -71,11 +71,14 @@ def _aws_candidate() -> Candidate:
 
 
 def discover() -> list[Candidate]:
-    """List every provider kadmon could configure, available or not."""
+    """List every provider kadmon could configure, available or not.
+
+    Order is usage popularity, then Bedrock.
+    """
     return [
         _env_candidate("anthropic", KIND_ANTHROPIC, "Anthropic"),
-        _env_candidate("grok", KIND_GROK, "xAI Grok"),
         _env_candidate("openai", KIND_OPENAI, "OpenAI"),
+        _env_candidate("grok", KIND_GROK, "xAI Grok"),
         _env_candidate("gemini", KIND_GEMINI, "Google Gemini"),
         _aws_candidate(),
     ]
