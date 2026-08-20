@@ -33,8 +33,9 @@ class EvalSummary:
 class SWEBenchRunner:
     """Runs kadmon against SWE-bench instances."""
 
-    def __init__(self, model: str = 'claude-sonnet-4-20250514', max_workers: int = 1):
+    def __init__(self, model: str = '', provider: str = '', max_workers: int = 1):
         self.model = model
+        self.provider_name = provider
         self.max_workers = max_workers
 
     def run_instance(self, instance: dict) -> EvalResult:
@@ -50,7 +51,7 @@ class SWEBenchRunner:
             from kadmon.providers.factory import build_provider
             from kadmon.tools import create_default_registry
 
-            config = load_settings().resolve()
+            config = load_settings().resolve(self.provider_name or '')
             if self.model:
                 config = config.model_copy(update={'model': self.model})
             provider = build_provider(config)

@@ -13,13 +13,10 @@ from kadmon.config import (
     KIND_BEDROCK,
     KIND_DEFAULTS,
     KIND_GEMINI,
+    KIND_GROK,
     KIND_OPENAI,
-    OLLAMA_BASE_URL,
-    XAI_BASE_URL,
     ProviderConfig,
 )
-
-OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 
 
 @dataclass
@@ -46,7 +43,7 @@ class Candidate:
 
 
 def _env_candidate(
-    name: str, kind: str, label: str, base_url: str = "", var: str = "", model: str = ""
+    name: str, kind: str, label: str, var: str = "", model: str = ""
 ) -> Candidate:
     var = var or KIND_DEFAULTS[kind]["env"]
     found = bool(os.environ.get(var))
@@ -57,7 +54,6 @@ def _env_candidate(
         available=found,
         detail=f"{var} is set" if found else f"{var} not set",
         model=model,
-        base_url=base_url,
         auth=f"env:{var}",
     )
 
@@ -74,39 +70,12 @@ def _aws_candidate() -> Candidate:
     )
 
 
-def _ollama_candidate() -> Candidate:
-    """Ask Ollama for its model list. That also tells us what is actually pulled."""
-    models: list[str] = []
-    try:
-        import json
-        import urllib.request
-
-        with urllib.request.urlopen(OLLAMA_TAGS_URL, timeout=1.0) as response:
-            payload = json.loads(response.read())
-        models = [m["name"] for m in payload.get("models", []) if m.get("name")]
-        running = True
-    except Exception:  # noqa: BLE001 - any failure means Ollama is unusable here
-        running = False
-
-    return Candidate(
-        name="ollama",
-        kind=KIND_OPENAI,
-        label="Ollama (local)",
-        available=running and bool(models),
-        detail=f"{len(models)} model(s) available" if models else "not running",
-        model=models[0] if models else "",
-        base_url=OLLAMA_BASE_URL,
-        auth="",
-    )
-
-
 def discover() -> list[Candidate]:
     """List every provider kadmon could configure, available or not."""
     return [
         _env_candidate("anthropic", KIND_ANTHROPIC, "Anthropic"),
-        _env_candidate("grok", KIND_OPENAI, "xAI Grok", XAI_BASE_URL, "XAI_API_KEY", "grok-4"),
+        _env_candidate("grok", KIND_GROK, "xAI Grok"),
         _env_candidate("openai", KIND_OPENAI, "OpenAI"),
         _env_candidate("gemini", KIND_GEMINI, "Google Gemini"),
         _aws_candidate(),
-        _ollama_candidate(),
     ]

@@ -35,6 +35,17 @@ def test_model_command():
     assert result.action == SlashAction.MODEL
 
 
+def test_providers_command():
+    """The /providers command returns PROVIDERS action."""
+    result = handle_slash_command("/providers")
+    assert result.action == SlashAction.PROVIDERS
+
+
+def test_help_lists_providers():
+    result = handle_slash_command("/help")
+    assert "/providers" in result.message
+
+
 def test_exit_command():
     """The /exit command returns EXIT action."""
     result = handle_slash_command("/exit")

@@ -23,8 +23,7 @@ class OpenAIProvider:
     ) -> None:
         """Create an OpenAI-compatible client.
 
-        A base_url points this at any compatible endpoint — xAI, Ollama,
-        OpenRouter — so those providers need no separate implementation.
+        A non-empty base_url points this at a compatible endpoint.
         """
         self.model = model
         self.max_tokens = max_tokens

@@ -70,6 +70,7 @@ Available commands:
   /cost         Show token usage and cost estimate
   /checkpoints  List file checkpoints
   /model        Show current provider/model
+  /providers    List configured providers
   /exit, /quit  Exit kadmon"""
 
 

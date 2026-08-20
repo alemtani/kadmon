@@ -13,12 +13,20 @@ PROVIDER_CLASSES = {
     "AnthropicProvider",
     "BedrockProvider",
     "OpenAIProvider",
+    "GrokProvider",
     "GeminiProvider",
 }
 
 # The factory builds providers; the provider modules define them; discovery and
 # tests may name them freely.
-ALLOWED = {"factory.py", "anthropic.py", "bedrock.py", "openai_provider.py", "gemini.py"}
+ALLOWED = {
+    "factory.py",
+    "anthropic.py",
+    "bedrock.py",
+    "openai_provider.py",
+    "grok.py",
+    "gemini.py",
+}
 
 PACKAGE = Path(__file__).resolve().parent.parent / "kadmon"
 
@@ -52,9 +60,10 @@ def test_factory_covers_every_kind(monkeypatch):
     from kadmon.config import KINDS, ProviderConfig
     from kadmon.providers.factory import build_provider
 
-    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"):
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"):
         monkeypatch.setenv(var, "test-key")
 
     for kind in KINDS:
         provider = build_provider(ProviderConfig(name=kind, kind=kind, model="test-model"))
         assert provider.model == "test-model", f"{kind} did not receive its model"
+        assert provider.name == kind

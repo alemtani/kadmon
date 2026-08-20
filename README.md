@@ -64,6 +64,12 @@ npm update -g kadmon
 
 ### Provider Setup (manual alternative to `kadmon init`)
 
+**xAI Grok:**
+```bash
+export XAI_API_KEY=xai-...
+kadmon --provider grok
+```
+
 **Anthropic:**
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -89,7 +95,7 @@ export AWS_REGION=us-east-1
 kadmon --provider bedrock
 ```
 
-Config is saved to `.kadmon/config.toml` after `kadmon init` — you only set this up once.
+`kadmon init` writes `~/.config/kadmon/config.toml`. A project can overlay that with `.kadmon/config.toml`. You can configure several providers and switch with `--provider`.
 
 ## What Makes Kadmon Different
 
@@ -143,7 +149,7 @@ kadmon run --task "..."   # One-shot mode
 ```
 kadmon/
 ├── agent/       # ReAct loop, planning, handoff, recovery
-├── providers/   # LLM providers (Bedrock, Anthropic, OpenAI, Gemini)
+├── providers/   # LLM providers (Bedrock, Anthropic, OpenAI, Grok, Gemini)
 ├── tools/       # file I/O, search, shell, plan, ask_human, library, checkpoints, parallel
 ├── memory/      # Library team (index/read/write/prune/curator agents), session log
 ├── human/       # Question batching, CLI/webhook channels

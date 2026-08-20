@@ -10,8 +10,6 @@ from pathlib import Path
 
 import click
 
-from kadmon.config import DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_REGION
-
 
 class _LiveStatus:
     """Prints a single updating line with a running timer."""
@@ -108,18 +106,18 @@ class PolyglotRunner:
 
     def __init__(
         self,
-        model: str = DEFAULT_MODEL,
-        provider: str = DEFAULT_PROVIDER,
-        aws_region: str = DEFAULT_REGION,
+        model: str = "",
+        provider: str = "",
+        aws_region: str = "",
         exercises_dir: str = "tmp.benchmarks/polyglot",
         max_attempts: int = 2,
         languages: list[str] | None = None,
         timeout: int = 180,
         workers: int = 1,
     ):
-        self.model = model
-        self.provider_name = provider
-        self.aws_region = aws_region
+        self.model = model or ""
+        self.provider_name = provider or ""
+        self.aws_region = aws_region or ""
         self.exercises_dir = Path(exercises_dir)
         self.max_attempts = max_attempts
         self.languages = languages or list(EXERCISM_REPOS.keys())

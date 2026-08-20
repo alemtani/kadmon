@@ -39,17 +39,15 @@ kind = "anthropic"
 model = "claude-sonnet-4-6"
 
 [providers.grok]
-kind = "openai"
-model = "grok-4"
-base_url = "https://api.x.ai/v1"
-auth = "env:XAI_API_KEY"
+kind = "grok"
+model = "grok-4.6"
 """)
     settings = load_settings(tmp_path)
 
     assert set(settings.providers) == {"anthropic", "grok"}
     assert settings.resolve().name == "anthropic"
-    assert settings.resolve("grok").base_url == "https://api.x.ai/v1"
-    assert settings.resolve("grok").model == "grok-4"
+    assert settings.resolve("grok").kind == "grok"
+    assert settings.resolve("grok").model == "grok-4.6"
 
 
 def test_unknown_provider_names_the_configured_ones(config_home, tmp_path):
@@ -59,8 +57,13 @@ def test_unknown_provider_names_the_configured_ones(config_home, tmp_path):
 
 
 def test_single_provider_needs_no_default(config_home, tmp_path):
-    write_global(config_home, '[providers.grok]\nkind = "openai"\n')
+    write_global(config_home, '[providers.grok]\nkind = "grok"\n')
     assert load_settings(tmp_path).resolve().name == "grok"
+
+
+def test_kind_defaults_to_provider_name(config_home, tmp_path):
+    write_global(config_home, '[providers.grok]\nmodel = "grok-4.6"\n')
+    assert load_settings(tmp_path).resolve().kind == "grok"
 
 
 def test_several_providers_without_default_is_an_error(config_home, tmp_path):
@@ -113,6 +116,17 @@ output = 15.0
     assert settings.pricing == {"input": 3.0, "output": 15.0}, "/cost must not regress"
 
 
+def test_legacy_inline_key_moves_to_credentials(config_home, tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    write_global(config_home, """
+[provider]
+name = "anthropic"
+model = "claude-3-opus"
+api_key = "sk-legacy"
+""")
+    assert load_settings(tmp_path).resolve().resolve_key() == "sk-legacy"
+
+
 def test_inline_api_key_is_rejected_with_instructions(config_home, tmp_path):
     write_global(config_home, '[providers.anthropic]\nkind = "anthropic"\napi_key = "sk-leaked"\n')
     with pytest.raises(ConfigError, match="auth"):
@@ -137,14 +151,14 @@ def test_missing_key_is_a_clear_error(monkeypatch, config_home):
 
 def test_key_comes_from_the_named_env_var(monkeypatch, config_home):
     monkeypatch.setenv("XAI_API_KEY", "xai-secret")
-    config = ProviderConfig(name="grok", kind="openai", model="grok-4", auth="env:XAI_API_KEY")
+    config = ProviderConfig(name="grok", kind="grok", model="grok-4.6")
     assert config.resolve_key() == "xai-secret"
 
 
 def test_local_endpoint_needs_no_key(monkeypatch, config_home):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     config = ProviderConfig(
-        name="ollama", kind="openai", model="qwen", base_url="http://localhost:11434/v1"
+        name="local", kind="openai", model="qwen", base_url="http://127.0.0.1:8080/v1"
     )
     assert config.resolve_key() == "not-needed"
 
@@ -160,8 +174,7 @@ default = "grok"
 kind = "anthropic"
 
 [providers.grok]
-kind = "openai"
-auth = "env:XAI_API_KEY"
+kind = "grok"
 """)
     assert load_settings(tmp_path).resolve().resolve_key() == "xai-secret"
 
@@ -174,10 +187,8 @@ def test_written_config_round_trips(config_home, tmp_path):
         ProviderConfig(name="anthropic", kind="anthropic", model="claude-sonnet-4-6"),
         ProviderConfig(
             name="grok",
-            kind="openai",
-            model="grok-4",
-            base_url="https://api.x.ai/v1",
-            auth="env:XAI_API_KEY",
+            kind="grok",
+            model="grok-4.6",
         ),
     ]
     path = config_home / "config.toml"
@@ -186,28 +197,50 @@ def test_written_config_round_trips(config_home, tmp_path):
     settings = load_settings(tmp_path)
     assert set(settings.providers) == {"anthropic", "grok"}
     assert settings.default == "anthropic"
+    assert settings.providers["grok"].kind == "grok"
     assert settings.mode == DEFAULT_MODE
     assert "api_key" not in path.read_text(), "secrets never land in config.toml"
+
+
+def test_write_config_keeps_existing_pricing(config_home, tmp_path):
+    write_global(
+        config_home,
+        '[providers.anthropic]\nkind = "anthropic"\n\n[pricing]\ninput = 3.0\noutput = 15.0\n',
+    )
+    write_config(
+        [ProviderConfig(name="anthropic", kind="anthropic", model="m")],
+        "anthropic",
+        config_home / "config.toml",
+    )
+    assert load_settings(tmp_path).pricing == {"input": 3.0, "output": 15.0}
 
 
 # --- factory ---
 
 
-def test_base_url_reaches_the_client(monkeypatch):
+def test_grok_kind_builds_grok_provider(monkeypatch):
     from kadmon.providers.factory import build_provider
+    from kadmon.providers.grok import GrokProvider
 
     monkeypatch.setenv("XAI_API_KEY", "xai-secret")
-    provider = build_provider(
-        ProviderConfig(
-            name="grok",
-            kind="openai",
-            model="grok-4",
-            base_url="https://api.x.ai/v1",
-            auth="env:XAI_API_KEY",
-        )
-    )
-    assert provider.model == "grok-4"
+    provider = build_provider(ProviderConfig(name="grok", kind="grok", model="grok-4.6"))
+    assert isinstance(provider, GrokProvider)
+    assert provider.model == "grok-4.6"
+    assert provider.name == "grok"
     assert "api.x.ai" in str(provider.client.base_url)
+
+
+def test_discover_offers_grok_not_ollama(monkeypatch):
+    from kadmon.providers.discovery import discover
+
+    monkeypatch.setenv("XAI_API_KEY", "xai-secret")
+    candidates = discover()
+    names = [c.name for c in candidates]
+    assert "grok" in names
+    assert "ollama" not in names
+    grok = next(c for c in candidates if c.name == "grok")
+    assert grok.kind == "grok"
+    assert grok.available
 
 
 def test_settings_resolve_prefers_explicit_name():

@@ -8,6 +8,7 @@ from kadmon.config import (
     KIND_ANTHROPIC,
     KIND_BEDROCK,
     KIND_GEMINI,
+    KIND_GROK,
     KIND_OPENAI,
     ProviderConfig,
 )
@@ -15,6 +16,12 @@ from kadmon.config import (
 
 def build_provider(config: ProviderConfig, max_tokens: int = 8192):
     """Create the LLM provider described by `config`."""
+    provider = _construct(config, max_tokens)
+    provider.name = config.name
+    return provider
+
+
+def _construct(config: ProviderConfig, max_tokens: int):
     if config.kind == KIND_BEDROCK:
         from kadmon.providers.bedrock import BedrockProvider
 
@@ -33,6 +40,16 @@ def build_provider(config: ProviderConfig, max_tokens: int = 8192):
         from kadmon.providers.gemini import GeminiProvider
 
         return GeminiProvider(model=config.model, api_key=api_key, max_tokens=max_tokens)
+
+    if config.kind == KIND_GROK:
+        from kadmon.providers.grok import GrokProvider
+
+        return GrokProvider(
+            model=config.model,
+            api_key=api_key,
+            max_tokens=max_tokens,
+            base_url=config.base_url,
+        )
 
     if config.kind == KIND_OPENAI:
         from kadmon.providers.openai_provider import OpenAIProvider

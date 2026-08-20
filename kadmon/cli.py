@@ -4,7 +4,6 @@ from pathlib import Path
 import click
 
 from kadmon import __version__
-from kadmon.config import DEFAULT_MODEL, DEFAULT_REGION
 
 # --- Multiline Input Assembly (pure, testable) ---
 
@@ -89,11 +88,14 @@ def _make_provider(provider: str, model: str, aws_region: str, repo_path: str = 
 
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__)
+@click.option("--model", default=None, help="Override model")
+@click.option("--provider", default=None, help="Override provider")
+@click.option("--aws-region", default=None, help="AWS region for Bedrock")
 @click.pass_context
-def main(ctx):
+def main(ctx, model, provider, aws_region):
     """Kadmon - an LLM coding agent."""
     if ctx.invoked_subcommand is None:
-        ctx.invoke(chat)
+        ctx.invoke(chat, model=model, provider=provider, aws_region=aws_region)
 
 
 @main.command()
@@ -315,8 +317,9 @@ def run(task: str, repo: str, model: str, provider: str, aws_region: str, mode: 
 @click.option("--dataset", type=click.Path(exists=True), help="Path to SWE-bench instances JSON")
 @click.option("--limit", type=int, default=None, help="Max instances to run")
 @click.option("--output", default="eval_results", help="Output directory")
-@click.option("--model", default="claude-sonnet-4-20250514")
-def eval_cmd(dataset, limit, output, model):
+@click.option("--model", default=None, help="Override model")
+@click.option("--provider", default=None, help="Configured provider name")
+def eval_cmd(dataset, limit, output, model, provider):
     """Run kadmon against SWE-bench instances."""
     import json
 
@@ -332,8 +335,9 @@ def eval_cmd(dataset, limit, output, model):
     if limit:
         instances = instances[:limit]
 
-    click.echo(f"Running {len(instances)} instances with {model}...")
-    runner = SWEBenchRunner(model=model)
+    label = model or provider or "configured provider"
+    click.echo(f"Running {len(instances)} instances with {label}...")
+    runner = SWEBenchRunner(model=model or "", provider=provider or "")
     summary = runner.run_dataset(instances, output_dir=output)
     click.echo(
         f"\nResults: {summary.resolved}/{summary.total} resolved ({summary.resolve_rate:.1%})"
@@ -350,9 +354,9 @@ def eval_cmd(dataset, limit, output, model):
 )
 @click.option("--limit", type=int, default=None, help="Max exercises to run")
 @click.option("--output", default="eval_results/polyglot", help="Output directory")
-@click.option("--model", default=DEFAULT_MODEL)
-@click.option("--provider", default=None)
-@click.option("--aws-region", default=DEFAULT_REGION)
+@click.option("--model", default=None, help="Override model")
+@click.option("--provider", default=None, help="Configured provider name")
+@click.option("--aws-region", default=None, help="AWS region for Bedrock")
 @click.option("--setup/--no-setup", default=True, help="Clone exercism repos if needed")
 @click.option("--workers", "-j", type=int, default=4, help="Parallel workers (default: 4)")
 def bench(languages, limit, output, model, provider, aws_region, setup, workers):
@@ -584,7 +588,7 @@ def _print_checkpoints(repo: str = ".") -> None:
 
 
 def _load_pricing(repo_path: str) -> dict[str, float] | None:
-    """Load model pricing from .kadmon/config.toml [pricing] section, if present.
+    """Load model pricing from the merged config [pricing] section, if present.
 
     Expected format in config.toml:
         [pricing]
@@ -593,17 +597,14 @@ def _load_pricing(repo_path: str) -> dict[str, float] | None:
 
     Returns None if not configured.
     """
-    config_path = Path(repo_path) / ".kadmon" / "config.toml"
-    if not config_path.exists():
-        return None
-    import tomllib
+    from kadmon.config import ConfigError, load_settings
+
     try:
-        data = tomllib.loads(config_path.read_text())
-        pricing = data.get("pricing")
-        if pricing and "input" in pricing and "output" in pricing:
-            return {"input": float(pricing["input"]), "output": float(pricing["output"])}
-    except (ValueError, KeyError, OSError):
-        pass
+        pricing = load_settings(repo_path).pricing
+    except ConfigError:
+        return None
+    if "input" in pricing and "output" in pricing:
+        return pricing
     return None
 
 
