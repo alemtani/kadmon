@@ -10,8 +10,6 @@ from pathlib import Path
 
 import click
 
-from kadmon.config import DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_REGION
-
 
 class _LiveStatus:
     """Prints a single updating line with a running timer."""
@@ -108,18 +106,18 @@ class PolyglotRunner:
 
     def __init__(
         self,
-        model: str = DEFAULT_MODEL,
-        provider: str = DEFAULT_PROVIDER,
-        aws_region: str = DEFAULT_REGION,
+        model: str = "",
+        provider: str = "",
+        aws_region: str = "",
         exercises_dir: str = "tmp.benchmarks/polyglot",
         max_attempts: int = 2,
         languages: list[str] | None = None,
         timeout: int = 180,
         workers: int = 1,
     ):
-        self.model = model
-        self.provider_name = provider
-        self.aws_region = aws_region
+        self.model = model or ""
+        self.provider_name = provider or ""
+        self.aws_region = aws_region or ""
         self.exercises_dir = Path(exercises_dir)
         self.max_attempts = max_attempts
         self.languages = languages or list(EXERCISM_REPOS.keys())
@@ -446,16 +444,16 @@ class PolyglotRunner:
         agent.run(prompt)
 
     def _get_provider(self):
-        """Create the LLM provider."""
-        if self.provider_name == "bedrock":
-            from kadmon.providers.bedrock import BedrockProvider
+        """Create the LLM provider from configuration."""
+        from kadmon.config import load_settings
+        from kadmon.providers.factory import build_provider
 
-            return BedrockProvider(model=self.model, aws_region=self.aws_region)
-        else:
-            from kadmon.providers.anthropic import AnthropicProvider
-
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-            return AnthropicProvider(model=self.model, api_key=api_key)
+        config = load_settings().resolve(self.provider_name or "")
+        if self.model:
+            config = config.model_copy(update={"model": self.model})
+        if self.aws_region:
+            config = config.model_copy(update={"aws_region": self.aws_region})
+        return build_provider(config)
 
     def _run_tests(self, lang: str, work_dir: Path) -> bool:
         """Run tests for the exercise. Returns True if all pass."""
