@@ -33,6 +33,7 @@ class SlashAction(Enum):
     STATUS = "status"
     CHECKPOINTS = "checkpoints"
     MODEL = "model"
+    PROVIDERS = "providers"
     CONTEXT = "context"
     COST = "cost"
     EXIT = "exit"
@@ -53,6 +54,7 @@ _COMMANDS: dict[str, SlashAction] = {
     "/status": SlashAction.STATUS,
     "/checkpoints": SlashAction.CHECKPOINTS,
     "/model": SlashAction.MODEL,
+    "/providers": SlashAction.PROVIDERS,
     "/context": SlashAction.CONTEXT,
     "/cost": SlashAction.COST,
     "/exit": SlashAction.EXIT,

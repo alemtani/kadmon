@@ -4,8 +4,7 @@ from pathlib import Path
 import click
 
 from kadmon import __version__
-from kadmon.config import DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_REGION
-
+from kadmon.config import DEFAULT_MODEL, DEFAULT_REGION
 
 # --- Multiline Input Assembly (pure, testable) ---
 
@@ -66,36 +65,26 @@ def _read_user_input(prompt: str = "> ") -> str:
         current_prompt = "... "
 
 
-def _make_provider(provider: str, model: str, aws_region: str):
-    """Create the appropriate LLM provider."""
-    if provider == "bedrock":
-        from kadmon.providers.bedrock import BedrockProvider
+def _make_provider(provider: str, model: str, aws_region: str, repo_path: str = "."):
+    """Create the LLM provider named by `provider`, or the configured default.
 
-        return BedrockProvider(model=model, aws_region=aws_region)
-    elif provider == "openai":
-        from kadmon.providers.openai_provider import OpenAIProvider
+    Flags win over config, but only when actually passed — click gives us None
+    otherwise, which falls through to the configured value.
+    """
+    from kadmon.config import ConfigError, load_settings
+    from kadmon.providers.factory import build_provider
 
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-        if not api_key:
-            click.echo("Error: OPENAI_API_KEY not set", err=True)
-            raise SystemExit(1)
-        return OpenAIProvider(model=model, api_key=api_key)
-    elif provider == "gemini":
-        from kadmon.providers.gemini import GeminiProvider
-
-        api_key = os.environ.get("GOOGLE_API_KEY", "")
-        if not api_key:
-            click.echo("Error: GOOGLE_API_KEY not set", err=True)
-            raise SystemExit(1)
-        return GeminiProvider(model=model, api_key=api_key)
-    else:
-        from kadmon.providers.anthropic import AnthropicProvider
-
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            click.echo("Error: ANTHROPIC_API_KEY not set", err=True)
-            raise SystemExit(1)
-        return AnthropicProvider(model=model, api_key=api_key)
+    try:
+        settings = load_settings(repo_path)
+        config = settings.resolve(provider or "")
+        if model:
+            config = config.model_copy(update={"model": model})
+        if aws_region:
+            config = config.model_copy(update={"aws_region": aws_region})
+        return build_provider(config)
+    except ConfigError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
 
 
 @click.group(invoke_without_command=True)
@@ -113,22 +102,23 @@ def main(ctx):
 @click.option("--aws-region", default=None, help="AWS region for Bedrock")
 def chat(model, provider, aws_region):
     """Interactive chat mode (default when no subcommand given)."""
+    from kadmon.agent import AgentLoop
+    from kadmon.cli_display import (
+        SlashAction,
+        StreamDisplay,
+        handle_slash_command,
+        render_context_meter,
+        render_cost_summary,
+    )
+    from kadmon.human import CLIChannel
     from kadmon.memory.librarian import Librarian
     from kadmon.memory.session_tracker import SessionTracker
     from kadmon.tools import build_index, create_default_registry
-    from kadmon.agent import AgentLoop
-    from kadmon.human import CLIChannel
-    from kadmon.cli_display import (
-        StreamDisplay, SlashAction, handle_slash_command,
-        render_context_meter, render_cost_summary,
-    )
 
     repo_path = os.path.abspath(".")
-    _provider = provider or DEFAULT_PROVIDER
-    _model = model or DEFAULT_MODEL
-    _region = aws_region or DEFAULT_REGION
-
-    llm = _make_provider(_provider, _model, _region)
+    llm = _make_provider(provider, model, aws_region, repo_path)
+    _provider = getattr(llm, "name", provider or "default")
+    _model = getattr(llm, "model", model or "")
     db = build_index(repo_path)
     tools = create_default_registry(repo_path, db=db, provider=llm)
     librarian = Librarian(repo_path)
@@ -187,6 +177,8 @@ def chat(model, provider, aws_region):
                     _print_status(repo_path)
                 elif result.action == SlashAction.CHECKPOINTS:
                     _print_checkpoints(repo_path)
+                elif result.action == SlashAction.PROVIDERS:
+                    _print_providers(repo_path, _provider)
                 elif result.action == SlashAction.MODEL:
                     click.echo(f"Provider: {_provider}  Model: {_model}")
                 elif result.action == SlashAction.CONTEXT:
@@ -231,17 +223,14 @@ def chat(model, provider, aws_region):
 @click.option("--aws-region", default=None, help="AWS region for Bedrock")
 def continue_session(model, provider, aws_region):
     """Resume the previous task from sessions/current.md."""
+    from kadmon.agent import AgentLoop
+    from kadmon.cli_display import StreamDisplay
+    from kadmon.human import CLIChannel
     from kadmon.memory.librarian import Librarian
     from kadmon.memory.session_tracker import SessionTracker
     from kadmon.tools import build_index, create_default_registry
-    from kadmon.agent import AgentLoop
-    from kadmon.human import CLIChannel
-    from kadmon.cli_display import StreamDisplay
 
     repo_path = os.path.abspath(".")
-    _provider = provider or DEFAULT_PROVIDER
-    _model = model or DEFAULT_MODEL
-    _region = aws_region or DEFAULT_REGION
 
     library_path = Path(repo_path) / ".kadmon" / "library"
     current_path = library_path / "sessions" / "current.md"
@@ -253,7 +242,7 @@ def continue_session(model, provider, aws_region):
     task = current_path.read_text()
     click.echo("Resuming session...\n")
 
-    llm = _make_provider(_provider, _model, _region)
+    llm = _make_provider(provider, model, aws_region, repo_path)
     db = build_index(repo_path)
     tools = create_default_registry(repo_path, db=db, provider=llm)
     librarian = Librarian(repo_path)
@@ -281,14 +270,9 @@ def continue_session(model, provider, aws_region):
 @main.command()
 @click.option("--task", required=True, type=str, help="Task description")
 @click.option("--repo", default=".", type=click.Path(exists=True), help="Repository path")
-@click.option("--model", default=DEFAULT_MODEL, type=str, help="Model to use")
-@click.option(
-    "--provider",
-    type=click.Choice(["anthropic", "bedrock", "openai", "gemini"]),
-    default=DEFAULT_PROVIDER,
-    help="LLM provider",
-)
-@click.option("--aws-region", default=DEFAULT_REGION, help="AWS region for Bedrock")
+@click.option("--model", default=None, type=str, help="Model to use")
+@click.option("--provider", default=None, help="Configured provider name")
+@click.option("--aws-region", default=None, help="AWS region for Bedrock")
 @click.option(
     "--mode",
     type=click.Choice(["yolo", "cautious", "paranoid"]),
@@ -297,14 +281,14 @@ def continue_session(model, provider, aws_region):
 )
 def run(task: str, repo: str, model: str, provider: str, aws_region: str, mode: str):
     """Run kadmon on a task."""
-    from kadmon.tools import build_index, create_default_registry
     from kadmon.agent import AgentLoop
+    from kadmon.human import CLIChannel
     from kadmon.memory.librarian import Librarian
     from kadmon.memory.session_tracker import SessionTracker
-    from kadmon.human import CLIChannel
+    from kadmon.tools import build_index, create_default_registry
 
-    llm = _make_provider(provider, model, aws_region)
     repo_path = os.path.abspath(repo)
+    llm = _make_provider(provider, model, aws_region, repo_path)
     db = build_index(repo_path)
     tools = create_default_registry(repo_path, db=db, provider=llm)
     librarian = Librarian(repo_path)
@@ -367,7 +351,7 @@ def eval_cmd(dataset, limit, output, model):
 @click.option("--limit", type=int, default=None, help="Max exercises to run")
 @click.option("--output", default="eval_results/polyglot", help="Output directory")
 @click.option("--model", default=DEFAULT_MODEL)
-@click.option("--provider", type=click.Choice(["anthropic", "bedrock", "openai", "gemini"]), default=DEFAULT_PROVIDER)
+@click.option("--provider", default=None)
 @click.option("--aws-region", default=DEFAULT_REGION)
 @click.option("--setup/--no-setup", default=True, help="Clone exercism repos if needed")
 @click.option("--workers", "-j", type=int, default=4, help="Parallel workers (default: 4)")
@@ -557,6 +541,28 @@ def checkpoints():
     _print_checkpoints()
 
 
+def _print_providers(repo_path: str, current: str = "") -> None:
+    """List every configured provider, marking the one in use."""
+    from kadmon.config import ConfigError, load_settings
+
+    try:
+        settings = load_settings(repo_path)
+    except ConfigError as exc:
+        click.echo(f"  {exc}")
+        return
+
+    if not settings.providers:
+        click.echo("  No providers configured. Run 'kadmon init'.")
+        return
+
+    click.echo("\nConfigured providers:")
+    for name, config in sorted(settings.providers.items()):
+        mark = "*" if name == current else " "
+        where = f" via {config.base_url}" if config.base_url else ""
+        click.echo(f"  {mark} {name:12} {config.kind:10} {config.model}{where}")
+    click.echo(f"\n  default: {settings.default or '(only one configured)'}\n")
+
+
 def _print_checkpoints(repo: str = ".") -> None:
     """Core logic for listing checkpoints.
 
@@ -602,104 +608,100 @@ def _load_pricing(repo_path: str) -> dict[str, float] | None:
 
 
 @main.command()
-def init():
-    """Interactive setup — configure provider, credentials, and test connection."""
-    click.echo("\n✨ Kadmon Setup\n")
+@click.option("--local", is_flag=True, help="Write to this project instead of your home config")
+def init(local):
+    """Interactive setup — detect providers, pick the ones you want, test them."""
+    from kadmon.config import (
+        CREDENTIALS_PATH,
+        GLOBAL_CONFIG_PATH,
+        KIND_DEFAULTS,
+        PROJECT_CONFIG_RELPATH,
+        write_config,
+        write_credential,
+    )
+    from kadmon.providers.discovery import discover
 
-    # 1. Pick provider
-    click.echo("Choose your LLM provider:")
-    click.echo("  1. Anthropic (API key)")
-    click.echo("  2. OpenAI (API key)")
-    click.echo("  3. Google Gemini (API key)")
-    click.echo("  4. AWS Bedrock (uses AWS credentials)")
-    choice = click.prompt("Provider", type=click.Choice(["1", "2", "3", "4"]), default="1")
+    click.echo("\n\u2728 Kadmon Setup\n")
 
-    provider_map = {"1": "anthropic", "2": "openai", "3": "gemini", "4": "bedrock"}
-    provider = provider_map[choice]
+    candidates = discover()
+    click.echo("Found on this machine:")
+    for i, c in enumerate(candidates, 1):
+        mark = "\u2713" if c.available else " "
+        click.echo(f"  [{mark}] {i}. {c.label:16} {c.detail}")
 
-    # 2. Configure credentials
-    config = {"provider": provider}
+    click.echo("\nSelect providers to enable (comma-separated numbers).")
+    click.echo("You can pick several — kadmon keeps them all configured.")
+    ready = [str(i) for i, c in enumerate(candidates, 1) if c.available]
+    picked = click.prompt("Providers", default=",".join(ready) or "1")
 
-    if provider == "anthropic":
-        config["api_key"] = click.prompt("Anthropic API key", hide_input=True)
-        config["model"] = click.prompt("Model", default="claude-sonnet-4-20250514")
-    elif provider == "openai":
-        config["api_key"] = click.prompt("OpenAI API key", hide_input=True)
-        config["model"] = click.prompt("Model", default="gpt-4o")
-    elif provider == "gemini":
-        config["api_key"] = click.prompt("Google API key", hide_input=True)
-        config["model"] = click.prompt("Model", default="gemini-2.5-flash")
-    elif provider == "bedrock":
-        config["aws_region"] = click.prompt("AWS region", default="us-east-1")
-        config["aws_profile"] = click.prompt(
-            "AWS profile (leave empty for default credentials)", default="", show_default=False
-        )
-        config["model"] = click.prompt("Model", default="us.anthropic.claude-sonnet-4-6")
+    chosen: list = []
+    for token in picked.split(","):
+        token = token.strip()
+        if not token.isdigit() or not 1 <= int(token) <= len(candidates):
+            click.echo(f"Ignoring '{token}' — not one of the numbers above.")
+            continue
+        chosen.append(candidates[int(token) - 1])
 
-    # 3. Test connection
-    click.echo("\nTesting connection...")
-    try:
-        _test_connection(config)
-        click.echo("✓ Connection successful!")
-    except Exception as e:
-        click.echo(f"✗ Connection failed: {e}", err=True)
-        if not click.confirm("Save config anyway?"):
+    if not chosen:
+        click.echo("Nothing selected. Run 'kadmon init' again to pick a provider.", err=True)
+        raise SystemExit(1)
+
+    configs = []
+    for c in chosen:
+        click.echo(f"\n{c.label}")
+        model = click.prompt("  Model", default=c.model or KIND_DEFAULTS[c.kind]["model"])
+        config = c.to_config().model_copy(update={"model": model})
+
+        if not c.available and c.auth.startswith("env:"):
+            key = click.prompt("  API key", hide_input=True, default="", show_default=False)
+            if key:
+                write_credential(c.name, key)
+                config = config.model_copy(update={"auth": f"credentials:{c.name}"})
+                click.echo(f"  Key stored in {CREDENTIALS_PATH}")
+        configs.append(config)
+
+    click.echo("\nTesting connections...")
+    working = []
+    for config in configs:
+        ok, detail = _test_provider(config)
+        mark = "\u2713" if ok else "\u2717"
+        click.echo(f"  {mark} {config.name}: {detail}")
+        if ok:
+            working.append(config)
+
+    if not working:
+        if not click.confirm("\nNothing connected. Save anyway?"):
             raise SystemExit(1)
+        working = configs
 
-    # 4. Save config
-    config_dir = Path(".") / ".kadmon"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.toml"
-    _write_config(config_path, config)
+    names = [c.name for c in working]
+    default = names[0] if len(names) == 1 else click.prompt(
+        "\nDefault provider", type=click.Choice(names), default=names[0]
+    )
 
-    click.echo(f"\n✓ Config saved to {config_path}")
-    click.echo("\nYou're ready! Try:")
-    click.echo('  kadmon run --task "Describe what this project does"')
+    path = Path(".") / PROJECT_CONFIG_RELPATH if local else GLOBAL_CONFIG_PATH
+    write_config(working, default, path)
+
+    click.echo(f"\n\u2713 Saved {len(working)} provider(s) to {path}")
+    click.echo(f"  Default: {default}")
+    if len(working) > 1:
+        others = ", ".join(n for n in names if n != default)
+        click.echo(f"  Switch anytime: kadmon --provider {others.split(',')[0].strip()}")
+    click.echo('\nTry: kadmon run --task "Describe what this project does"')
 
 
-def _test_connection(config: dict):
-    """Make a minimal API call to verify credentials work."""
-    provider = config["provider"]
-    model = config["model"]
-
-    if provider == "bedrock":
-        if config.get("aws_profile"):
-            os.environ["AWS_PROFILE"] = config["aws_profile"]
-        from kadmon.providers.bedrock import BedrockProvider
-
-        p = BedrockProvider(model=model, aws_region=config.get("aws_region", "us-east-1"))
-    elif provider == "anthropic":
-        from kadmon.providers.anthropic import AnthropicProvider
-
-        p = AnthropicProvider(model=model, api_key=config["api_key"])
-    elif provider == "openai":
-        if not config.get("api_key", "").startswith("sk-"):
-            raise ValueError("Invalid API key format")
-        return
-    else:
-        return
-
+def _test_provider(config) -> tuple[bool, str]:
+    """Make a minimal call to verify a provider actually works."""
     from kadmon.providers.base import Message
+    from kadmon.providers.factory import build_provider
 
-    p.complete(messages=[Message(role="user", content="Say 'ok'")], system="Respond with just 'ok'")
+    try:
+        provider = build_provider(config, max_tokens=16)
+        provider.complete(
+            messages=[Message(role="user", content="Say ok")], system="Respond with just 'ok'"
+        )
+        return True, "connected"
+    except Exception as exc:  # noqa: BLE001 - report any failure to the user verbatim
+        return False, str(exc).split("\n")[0][:80]
 
 
-def _write_config(path: Path, config: dict):
-    """Write config as TOML."""
-    lines = ["# Kadmon configuration", "# Generated by: kadmon init", ""]
-    lines.append("[provider]")
-    lines.append(f'name = "{config["provider"]}"')
-    lines.append(f'model = "{config["model"]}"')
-
-    if config.get("aws_region"):
-        lines.append(f'aws_region = "{config["aws_region"]}"')
-    if config.get("aws_profile"):
-        lines.append(f'aws_profile = "{config["aws_profile"]}"')
-    if config.get("api_key"):
-        lines.append(f'api_key = "{config["api_key"]}"')
-
-    lines.append("")
-    lines.append("[agent]")
-    lines.append('mode = "yolo"  # yolo | cautious | paranoid')
-    lines.append("")
-    path.write_text("\n".join(lines) + "\n")

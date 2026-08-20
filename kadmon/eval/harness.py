@@ -46,11 +46,14 @@ class SWEBenchRunner:
             repo_dir = self._setup_repo(instance)
 
             from kadmon.agent.loop import AgentLoop
-            from kadmon.providers.anthropic import AnthropicProvider
+            from kadmon.config import load_settings
+            from kadmon.providers.factory import build_provider
             from kadmon.tools import create_default_registry
 
-            api_key = os.environ.get('ANTHROPIC_API_KEY', '')
-            provider = AnthropicProvider(model=self.model, api_key=api_key)
+            config = load_settings().resolve()
+            if self.model:
+                config = config.model_copy(update={'model': self.model})
+            provider = build_provider(config)
             tools = create_default_registry(str(repo_dir))
             agent = AgentLoop(provider=provider, tools=tools)
 

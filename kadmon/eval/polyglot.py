@@ -446,16 +446,16 @@ class PolyglotRunner:
         agent.run(prompt)
 
     def _get_provider(self):
-        """Create the LLM provider."""
-        if self.provider_name == "bedrock":
-            from kadmon.providers.bedrock import BedrockProvider
+        """Create the LLM provider from configuration."""
+        from kadmon.config import load_settings
+        from kadmon.providers.factory import build_provider
 
-            return BedrockProvider(model=self.model, aws_region=self.aws_region)
-        else:
-            from kadmon.providers.anthropic import AnthropicProvider
-
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-            return AnthropicProvider(model=self.model, api_key=api_key)
+        config = load_settings().resolve(self.provider_name or "")
+        if self.model:
+            config = config.model_copy(update={"model": self.model})
+        if self.aws_region:
+            config = config.model_copy(update={"aws_region": self.aws_region})
+        return build_provider(config)
 
     def _run_tests(self, lang: str, work_dir: Path) -> bool:
         """Run tests for the exercise. Returns True if all pass."""

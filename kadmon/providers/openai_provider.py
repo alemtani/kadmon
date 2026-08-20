@@ -14,10 +14,22 @@ _MAX_RETRIES = 3
 class OpenAIProvider:
     """LLM provider using OpenAI API (GPT-4o, o1, etc.)."""
 
-    def __init__(self, model: str = "gpt-4o", api_key: str = "", max_tokens: int = 8192) -> None:
+    def __init__(
+        self,
+        model: str = "gpt-4o",
+        api_key: str = "",
+        max_tokens: int = 8192,
+        base_url: str = "",
+    ) -> None:
+        """Create an OpenAI-compatible client.
+
+        A base_url points this at any compatible endpoint — xAI, Ollama,
+        OpenRouter — so those providers need no separate implementation.
+        """
         self.model = model
         self.max_tokens = max_tokens
-        self.client = openai.OpenAI(api_key=api_key)
+        self.base_url = base_url
+        self.client = openai.OpenAI(api_key=api_key, base_url=base_url or None)
 
     def complete(
         self, messages: list[Message], tools: list[dict] | None = None, system: str = ""
