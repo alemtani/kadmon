@@ -16,6 +16,7 @@ from kadmon.config import (
     KIND_GROK,
     KIND_OPENAI,
     ProviderConfig,
+    stored_grant,
 )
 
 
@@ -58,6 +59,30 @@ def _env_candidate(
     )
 
 
+def _kind_candidate(name: str, kind: str, label: str) -> Candidate:
+    """Available when a subscription session exists, key or no key."""
+    from kadmon.auth import find_vendor
+
+    vendor = find_vendor(kind)
+    if vendor is None:
+        return _env_candidate(name, kind, label)
+
+    grant = stored_grant(vendor.name)
+    if grant is None:
+        return _env_candidate(name, kind, vendor.display_name)
+
+    who = grant.account or f"your {vendor.display_name} account"
+    extra = f" — {vendor.available_detail}" if vendor.available_detail else ""
+    return Candidate(
+        name=name,
+        kind=kind,
+        label=vendor.display_name,
+        available=True,
+        detail=f"signed in as {who}{extra}",
+        auth=f"oauth:{vendor.name}",
+    )
+
+
 def _aws_candidate() -> Candidate:
     aws_dir = Path.home() / ".aws"
     found = (aws_dir / "credentials").exists() or (aws_dir / "config").exists()
@@ -73,12 +98,34 @@ def _aws_candidate() -> Candidate:
 def discover() -> list[Candidate]:
     """List every provider kadmon could configure, available or not.
 
-    Order is usage popularity, then Bedrock.
+    Order is usage popularity, then Bedrock. Key-based kinds go through
+    `_kind_candidate`, which falls through to the env var when no vendor is
+    registered. Extra vendor names that are also known kinds are appended
+    before Bedrock.
     """
-    return [
-        _env_candidate("anthropic", KIND_ANTHROPIC, "Anthropic"),
-        _env_candidate("openai", KIND_OPENAI, "OpenAI"),
-        _env_candidate("grok", KIND_GROK, "xAI Grok"),
-        _env_candidate("gemini", KIND_GEMINI, "Google Gemini"),
+    listed = [
+        _kind_candidate("anthropic", KIND_ANTHROPIC, "Anthropic"),
+        _kind_candidate("openai", KIND_OPENAI, "OpenAI"),
+        _kind_candidate("grok", KIND_GROK, "xAI Grok"),
+        _kind_candidate("gemini", KIND_GEMINI, "Google Gemini"),
         _aws_candidate(),
     ]
+    return _append_extra_vendors(listed)
+
+
+def _append_extra_vendors(listed: list[Candidate]) -> list[Candidate]:
+    from kadmon.auth import find_vendor, vendor_names
+
+    seen = {c.kind for c in listed}
+    extra = []
+    for name in vendor_names():
+        if name in seen or name not in KIND_DEFAULTS:
+            continue
+        vendor = find_vendor(name)
+        if vendor is None:
+            continue
+        extra.append(_kind_candidate(name, name, vendor.display_name))
+    if not extra:
+        return listed
+    # Keep Bedrock last.
+    return listed[:-1] + extra + listed[-1:]

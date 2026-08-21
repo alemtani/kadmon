@@ -8,6 +8,7 @@ from kadmon.auth.store import TOKENS_PATH, AuthError, Grant, clear, load, save
 from kadmon.auth.vendor import (
     LoginPrompt,
     Vendor,
+    find_vendor,
     get_vendor,
     live,
     register,
@@ -25,6 +26,7 @@ __all__ = [
     "LoginPrompt",
     "Vendor",
     "clear",
+    "find_vendor",
     "get_vendor",
     "live",
     "load",

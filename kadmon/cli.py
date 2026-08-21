@@ -1,4 +1,6 @@
+import contextlib
 import os
+import sys
 from pathlib import Path
 from typing import NoReturn
 
@@ -65,12 +67,18 @@ def _read_user_input(prompt: str = "> ") -> str:
         current_prompt = "... "
 
 
+def _is_tty() -> bool:
+    """True when a person is at the keyboard. Only the CLI may ask them anything."""
+    return sys.stdin.isatty()
+
+
 def _make_provider(provider: str, model: str, aws_region: str, repo_path: str = "."):
     """Create the LLM provider named by `provider`, or the configured default.
 
     Flags win over config, but only when actually passed — click gives us None
     otherwise, which falls through to the configured value.
     """
+    from kadmon.auth import AuthError
     from kadmon.config import ConfigError, load_settings
     from kadmon.providers.factory import build_provider
 
@@ -82,8 +90,64 @@ def _make_provider(provider: str, model: str, aws_region: str, repo_path: str = 
         if aws_region:
             config = config.model_copy(update={"aws_region": aws_region})
         return build_provider(config)
+    except AuthError as exc:
+        return _provider_after_signout(config, exc)
     except ConfigError as exc:
         click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
+
+
+def _provider_after_signout(config, exc: Exception):
+    """The session is dead, not the pool. Offer a key, but only on a terminal.
+
+    `eval` and `bench` have no terminal, so they stop here. The factory and the
+    provider never reach this code — the CLI owns every question.
+    """
+    from kadmon.auth import find_vendor
+    from kadmon.config import CREDENTIALS_PATH, write_credential
+    from kadmon.providers.factory import build_provider
+
+    click.echo(f"{exc}", err=True)
+    if not _is_tty():
+        raise SystemExit(1) from exc
+
+    vendor = find_vendor(config.kind)
+    label = vendor.display_name if vendor else config.kind
+    click.echo(
+        f"An API key works instead. It bills per token, not your {label} subscription.",
+        err=True,
+    )
+    key = click.prompt(
+        f"{label} API key (Enter to stop)", hide_input=True, default="", show_default=False
+    )
+    if not key:
+        raise SystemExit(1) from exc
+
+    if click.confirm(f"Store this key in {CREDENTIALS_PATH}?", default=False):
+        write_credential(config.name, key)
+    else:
+        click.echo("Using the key for this run only.", err=True)
+    return build_provider(config, api_key=key)
+
+
+@contextlib.contextmanager
+def _subscription_limits():
+    """Stop the run on a spent pool or a dead session. Never swap in a key.
+
+    The two cases must not read the same. A spent pool means wait. A dead
+    session means sign in again.
+    """
+    from kadmon.auth import AuthError
+    from kadmon.providers.subscription import PoolExhausted
+
+    try:
+        yield
+    except PoolExhausted as exc:
+        ask = " Try again after it resets?" if _is_tty() else ""
+        click.echo(f"{exc}{ask}", err=True)
+        raise SystemExit(1) from exc
+    except AuthError as exc:
+        click.echo(f"{exc}", err=True)
         raise SystemExit(1) from exc
 
 
@@ -196,11 +260,12 @@ def chat(model, provider, aws_region):
                     click.echo(result.message)
                 continue
             conv_history.snapshot(task, [], None)
-            if first_prompt:
-                result = agent.run(task)
-                first_prompt = False
-            else:
-                result = agent.continue_with(task)
+            with _subscription_limits():
+                if first_prompt:
+                    result = agent.run(task)
+                    first_prompt = False
+                else:
+                    result = agent.continue_with(task)
             if result:
                 click.echo("")
             else:
@@ -262,7 +327,8 @@ def continue_session(model, provider, aws_region):
         repo_root=repo_path,
         display=display,
     )
-    result = agent.run(task)
+    with _subscription_limits():
+        result = agent.run(task)
     db.close()
     if result:
         click.echo(result)
@@ -306,7 +372,8 @@ def run(task: str, repo: str, model: str, provider: str, aws_region: str, mode: 
         channel=channel,
         repo_root=repo_path,
     )
-    result = agent.run(task)
+    with _subscription_limits():
+        result = agent.run(task)
     db.close()
     if result:
         click.echo(result)
@@ -748,12 +815,15 @@ def init(local):
         model = click.prompt("  Model", default=c.model or KIND_DEFAULTS[c.kind]["model"])
         config = c.to_config().model_copy(update={"model": model})
 
-        if not c.available and c.auth.startswith("env:"):
-            key = click.prompt("  API key", hide_input=True, default="", show_default=False)
-            if key:
-                write_credential(c.name, key)
-                config = config.model_copy(update={"auth": f"credentials:{c.name}"})
-                click.echo(f"  Key stored in {CREDENTIALS_PATH}")
+        if not c.available:
+            # Sign-in first when this kind has a vendor. A key is the fallback.
+            config = _offer_signin(config)
+            if c.auth.startswith("env:") and not config.auth.startswith("oauth:"):
+                key = click.prompt("  API key", hide_input=True, default="", show_default=False)
+                if key:
+                    write_credential(c.name, key)
+                    config = config.model_copy(update={"auth": f"credentials:{c.name}"})
+                    click.echo(f"  Key stored in {CREDENTIALS_PATH}")
         configs.append(config)
 
     click.echo("\nTesting connections...")
@@ -786,16 +856,72 @@ def init(local):
     click.echo('\nTry: kadmon run --task "Describe what this project does"')
 
 
+def _offer_signin(config):
+    """Ask to sign in before asking for a key.
+
+    Returns the config to keep. `auth = "oauth:<vendor>"` records where the
+    credential came from; the token store is what makes the run work.
+    """
+    from kadmon.auth import AuthError, find_vendor
+
+    vendor = find_vendor(config.kind)
+    if vendor is None:
+        return config
+
+    click.echo(f"  A {vendor.display_name} subscription runs kadmon from your pool.")
+    click.echo("  An API key bills per token instead.")
+    if not vendor.tested:
+        click.echo(
+            f"  Note: {vendor.display_name} sign-in is experimental and may not be fully tested."
+        )
+    if not click.confirm(f"  Sign in to {vendor.display_name}?", default=vendor.tested):
+        return config
+
+    try:
+        grant = vendor.login(_init_login_prompt)
+        vendor.save_grant(grant)
+    except AuthError as exc:
+        click.echo(f"  {exc}")
+        return config
+
+    who = grant.account or f"your {vendor.display_name} account"
+    click.echo(f"  Signed in as {who}.")
+    return config.model_copy(update={"auth": f"oauth:{vendor.name}"})
+
+
+def _init_login_prompt(prompt) -> None:
+    if prompt.url:
+        click.echo(f"\n  Open {prompt.url}")
+        if prompt.user_code:
+            click.echo(f"  Confirm this code: {prompt.user_code}")
+        click.echo("  Waiting for you to approve...")
+        return
+    if prompt.message:
+        click.echo(f"  {prompt.message}")
+
+
 def _test_provider(config) -> tuple[bool, str]:
-    """Make a minimal call to verify a provider actually works."""
-    from kadmon.providers.base import Message
+    """Check a provider without spending anything.
+
+    Setup must not bill the user. A completion would draw on the SuperGrok
+    pool, so this builds the client and lists models instead. Listing is free
+    and still proves the credential is accepted.
+    """
     from kadmon.providers.factory import build_provider
 
     try:
         provider = build_provider(config, max_tokens=16)
-        provider.complete(
-            messages=[Message(role="user", content="Say ok")], system="Respond with just 'ok'"
-        )
+    except Exception as exc:  # noqa: BLE001 - report any failure to the user verbatim
+        return False, str(exc).split("\n")[0][:80]
+
+    models = getattr(getattr(provider, "client", None), "models", None)
+    if models is None or not hasattr(models, "list"):
+        # Bedrock and anything else without a free listing. The credential is
+        # present; the first real call reports the rest.
+        return True, "configured"
+
+    try:
+        next(iter(models.list()), None)
         return True, "connected"
     except Exception as exc:  # noqa: BLE001 - report any failure to the user verbatim
         return False, str(exc).split("\n")[0][:80]

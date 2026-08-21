@@ -6,13 +6,27 @@ from collections.abc import Iterator
 
 import openai
 
-from kadmon.providers.base import LLMResponse, Message, StreamChunk, StreamEvent, TokenUsage, ToolCall
+from kadmon.auth.store import Grant
+from kadmon.auth.vendor import Vendor
+from kadmon.providers.base import (
+    LLMResponse,
+    Message,
+    StreamChunk,
+    StreamEvent,
+    TokenUsage,
+    ToolCall,
+)
+from kadmon.providers.subscription import GrantClient
 
 _MAX_RETRIES = 3
 
 
-class OpenAIProvider:
-    """LLM provider using OpenAI API (GPT-4o, o1, etc.)."""
+class OpenAIProvider(GrantClient):
+    """LLM provider using OpenAI API (GPT-4o, o1, etc.).
+
+    OpenAI-compatible hosts inherit 401 refresh and pool-spent stop from
+    `GrantClient`. Pass `grant` only when this kind has a live session.
+    """
 
     def __init__(
         self,
@@ -20,15 +34,28 @@ class OpenAIProvider:
         api_key: str = "",
         max_tokens: int = 8192,
         base_url: str = "",
+        default_headers: dict[str, str] | None = None,
+        grant: Grant | None = None,
+        vendor: Vendor | None = None,
     ) -> None:
         """Create an OpenAI-compatible client.
 
         A non-empty base_url points this at a compatible endpoint.
+        `default_headers` carries client identity. Keep credentials out of it —
+        `api_key` already becomes the one auth header.
         """
+        self.grant = grant
+        self.vendor = vendor
+        if grant is not None:
+            api_key = grant.access_token
         self.model = model
         self.max_tokens = max_tokens
         self.base_url = base_url
-        self.client = openai.OpenAI(api_key=api_key, base_url=base_url or None)
+        self.client = openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url or None,
+            default_headers=default_headers or None,
+        )
 
     def complete(
         self, messages: list[Message], tools: list[dict] | None = None, system: str = ""
@@ -61,7 +88,9 @@ class OpenAIProvider:
         if tools:
             kwargs["tools"] = [self._convert_tool(t) for t in tools]
 
-        response_stream = self.client.chat.completions.create(**kwargs)
+        # Through _call_with_retry, not the client directly: GrantClient
+        # refreshes a token or stops on a spent pool on this path too.
+        response_stream = self._call_with_retry(kwargs)
         yield from self._process_stream(response_stream)
 
     def _build_messages(self, messages: list[Message], system: str) -> list[dict]:
@@ -206,7 +235,12 @@ class OpenAIProvider:
             },
         }
 
-    def _call_with_retry(self, kwargs: dict):
+    def _create_with_backoff(self, kwargs: dict):
+        """POST once, retrying only transient transport errors.
+
+        GrantClient wraps this twice on a 401. Do not call `_call_with_retry`
+        from here.
+        """
         for attempt in range(_MAX_RETRIES):
             try:
                 return self.client.chat.completions.create(**kwargs)
