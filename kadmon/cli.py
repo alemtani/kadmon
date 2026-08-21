@@ -545,6 +545,67 @@ def checkpoints():
     _print_checkpoints()
 
 
+@main.command()
+@click.argument("vendor", type=click.Choice(["grok"]))
+def login(vendor: str):
+    """Sign in to a subscription you already pay for."""
+    from kadmon.auth import xai
+
+    try:
+        grant = xai.load_grant()
+    except xai.AuthError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
+
+    if grant is not None:
+        who = grant.account or "your xAI account"
+        click.echo(f"Already signed in to xAI Grok as {who}.")
+        click.echo("Run 'kadmon logout grok' first to sign in as someone else.")
+        return
+
+    try:
+        device = xai.request_device_code()
+    except xai.AuthError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
+
+    click.echo("\nOpen this URL to sign in:\n")
+    click.echo(f"  {device.url}\n")
+    click.echo(f"Then confirm this code: {device.user_code}\n")
+    click.echo("Waiting for you to approve...")
+
+    try:
+        grant = xai.poll_for_grant(device)
+        xai.save_grant(grant)
+    except xai.AuthError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
+
+    who = grant.account or "your xAI account"
+    click.echo(f"\n✓ Signed in to xAI Grok as {who}.")
+    click.echo(f"  Token stored in {xai.TOKENS_PATH}")
+    click.echo("  Runs now draw from your SuperGrok pool, not a console API key.")
+
+
+@main.command()
+@click.argument("vendor", type=click.Choice(["grok"]))
+def logout(vendor: str):
+    """Sign out and delete the stored token."""
+    from kadmon.auth import xai
+
+    try:
+        grant = xai.load_grant()
+        if grant is None:
+            click.echo("Not signed in to xAI Grok.")
+            return
+        xai.clear_grant()
+    except xai.AuthError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
+
+    click.echo(f"Signed out of xAI Grok. The token is gone from {xai.TOKENS_PATH}.")
+
+
 def _print_providers(repo_path: str, current: str = "") -> None:
     """List every configured provider, marking the one in use."""
     from kadmon.config import ConfigError, load_settings
