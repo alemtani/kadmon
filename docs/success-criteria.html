@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kadmon — How we know it is good</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --paper: #fffdf8;
+    --ink: #1c1917;
+    --muted: #57534e;
+    --line: #e7e0d4;
+    --accent: #1d4ed8;
+    --tag: #0f766e;
+    --card: #0c1222;
+    --card-ink: #e8eefc;
+    --card-dim: #93a0c2;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --ui: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body { font-family: var(--sans); font-size: 17.5px; line-height: 1.45; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 24px 96px; }
+  .kicker {
+    font-family: var(--ui); font-size: 12px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--tag); font-weight: 600; margin: 0 0 10px;
+  }
+  h1 { font-size: 40px; line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+  .lede { font-size: 19px; color: var(--muted); margin: 0 0 16px; max-width: 40em; }
+  .meta { font-family: var(--ui); font-size: 13px; color: var(--muted); }
+  h2 { font-size: 24px; margin: 44px 0 10px; letter-spacing: -0.02em; }
+  h3 { font-size: 17px; margin: 26px 0 8px; font-family: var(--ui); }
+  p, li { max-width: 42em; }
+  a { color: var(--accent); }
+  sup a { font-family: var(--ui); font-size: 11px; text-decoration: none; }
+  .note {
+    border-left: 3px solid var(--tag); padding: 8px 14px; color: var(--muted);
+    font-family: var(--ui); font-size: 14.5px; margin: 14px 0 22px;
+  }
+  table { border-collapse: collapse; width: 100%; font-family: var(--ui); font-size: 14px; margin: 10px 0 22px; background: var(--paper); }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  code, .id { font-family: var(--mono); font-size: 0.86em; }
+  .id { color: var(--tag); font-weight: 600; }
+  .card {
+    background: var(--card); color: var(--card-ink); font-family: var(--mono);
+    font-size: 12.5px; line-height: 1.55; padding: 20px 22px; border-radius: 10px;
+    margin: 14px 0 24px; overflow-x: auto; white-space: pre;
+  }
+  .card .dim { color: var(--card-dim); }
+  .card .hi { color: #fbbf24; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0 22px; }
+  .tile { background: var(--paper); border: 1px solid var(--line); padding: 14px 16px; border-radius: 8px; }
+  .tile h3 { margin-top: 0; }
+  .tile p { margin: 0; font-family: var(--ui); font-size: 14.5px; color: var(--muted); }
+  ul.check { padding-left: 1.2em; }
+  .refs { font-family: var(--ui); font-size: 13.5px; color: var(--muted); }
+  .refs li { margin: 0 0 6px; max-width: none; }
+  footer { margin-top: 48px; font-family: var(--ui); font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+  @media (max-width: 720px) {
+    h1 { font-size: 30px; }
+    .two { grid-template-columns: 1fr; }
+  }
+  @media print {
+    body { background: white; }
+    .wrap { padding: 0; }
+    .card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="kicker">Kadmon working spec · 20 Aug 2026</p>
+  <h1>How we know it is good</h1>
+  <p class="lede">Each criterion names a source. The source is why the line exists — not a claim that Kadmon already meets it.</p>
+  <p class="meta">Adversarial review (earlier draft): Claude Opus 4.8 · Sign-in: <a href="subscription-auth.md">subscription-auth.md</a> (separate doc)</p>
+
+  <h2>Product</h2>
+  <p>Kadmon is a teammate coding agent. You give it a Task or a Project. A Task comes back as a pull request that already passed the repo’s tests and an independent review. A Project stops for a design YES/NO, then those PRs. It asks only when direction is unclear. It writes skills that fire the next time. Cheap models do the work. Evals carry correctness.</p>
+
+  <h2>Two layers</h2>
+  <p>Internal gates can be arbitrary. An agent can pass them and still lose on a public protocol, and still ship bugs after merge. Passing only one layer is not success.</p>
+  <div class="two">
+    <div class="tile">
+      <h3>A — Workplace</h3>
+      <p>Does it finish real work with almost no babysitting? Failure if used alone: easy gates on a repo we wrote.</p>
+    </div>
+    <div class="tile">
+      <h3>B — Public comparison</h3>
+      <p>Is the same system competitive on a published protocol? Failure if used alone: can take a test, cannot ship a PR.</p>
+    </div>
+  </div>
+  <p>A third check sits after merge: defects that come back. That is DORA change-fail rate, applied to agent-merged work.<sup><a href="#r16">16</a></sup></p>
+  <p class="note">No 1–5 scores. No live conversation-watcher. Binary pass/fail and code assertions first.<sup><a href="#r1">1</a>,<a href="#r2">2</a></sup> An LLM judge only when a mechanical check cannot exist, and then still binary.</p>
+
+  <h2>Comparison card</h2>
+  <p>A card without a date, harness, model, and <strong>same-model baseline row</strong> is void. Comparing Kadmon+Grok to a SOTA row on another model confounds scaffold and model. Terminal-Bench finds model choice usually moves the score more than the scaffold.<sup><a href="#r10">10</a></sup> The control row is what makes the number about Kadmon.</p>
+  <div class="card"><span class="dim">Kadmon &lt;version&gt;   &lt;date&gt;   harness &lt;id&gt;
+
+Layer A — workplace
+  (not a general capability claim until ≥2 repos, one not authored here)
+  first-pass merge-ready     k/N   (Wilson 95% CI)
+  mechanical questions       0/N
+  corrective PRs ≤14 days    k/N   (Wilson 95% CI)
+  median human minutes       M
+  $ per Task                 $x
+
+Layer B — public  <span class="hi">void unless same-model baseline row is present</span>
+  Senior SWE-Bench tasteful-solve
+    Kadmon + &lt;model&gt;              xx%
+    Terminus 2 + &lt;same model&gt;     yy%     ← required control
+    cited leaderboard row         zz%     (agent, model, date named)
+  $ / instance                    $a / $b / $c
+  Terminal-Bench 2.x (secondary, same three-row shape)</span></div>
+  <p>Tied means intervals overlap. We do not say “better” inside overlapping error. Wilson, not Wald: Wald collapses at 0/n and under-covers at small n. Brown, Cai, and DasGupta recommend Wilson for binomial proportions.<sup><a href="#r14">14</a></sup> At n≈10, 8/10 has a Wilson 95% interval of roughly 49–96%.</p>
+
+  <h2>Layer A — Workplace</h2>
+  <p>First dogfood: <a href="https://github.com/alemtani/convo-agent">convo-agent</a>. Until a second repo not authored here has run Tasks, these numbers are in-distribution only. Do not pool. SWE-bench Pro’s private split is harder than public for this reason.<sup><a href="#r18">18</a></sup></p>
+
+  <h3>Class: Task vs Project</h3>
+  <p>Default is Task. It becomes a Project if any tripwire is YES. The agent does not self-certify class.</p>
+  <ul class="check">
+    <li>User labeled it project / RFC / design.</li>
+    <li><strong>Mechanical (a script on the diff):</strong> new public-API path, provider, datastore migration, or production secret name.</li>
+    <li>Cannot ship as one PR.</li>
+    <li><code>AGENTS.md</code> or a skill marks the area as design-first.</li>
+  </ul>
+  <p>On convo-agent, A1 / C0 / Phase 6 are Tasks. Phase 7 (durable DB) and V2 (converser/grader split) are Projects.</p>
+
+  <h3>Task scorecard</h3>
+  <table>
+    <thead><tr><th>ID</th><th>YES</th><th>NO (the cheat)</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="id">T1 Class</td>
+        <td>Tripwires match the label</td>
+        <td>Skipped a tripwire</td>
+        <td>Self-labels are an unvalidated judge.<sup><a href="#r1">1</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">T2 Tests</td>
+        <td>Gate green, test count ≥ base, no new skip/xfail, bugfix has fail-then-pass</td>
+        <td>Green because tests were deleted</td>
+        <td>SWE-bench resolved = FAIL_TO_PASS pass and PASS_TO_PASS still pass.<sup><a href="#r4">4</a>,<a href="#r5">5</a></sup> Kadmon’s current harness (nonempty diff = resolved) is not used.</td>
+      </tr>
+      <tr>
+        <td class="id">T3 PR</td>
+        <td>GitHub PR exists with the diff</td>
+        <td>Local diff only</td>
+        <td>The unit of delivery is a reviewable change.<sup><a href="#r4">4</a>,<a href="#r9">9</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">T4 Review</td>
+        <td>Fresh session, no writer history. Request-changes fixed or waived. Different vendor <em>recommended</em> when two are configured; same-provider second pass is acceptable</td>
+        <td>Writer reviewing its own conversation, or no review</td>
+        <td>Agreeableness is worst in the same session.<sup><a href="#r12">12</a></sup> Self-Agg still helps on one model; Multi-Agg is extra, not a gate.<sup><a href="#r11">11</a></sup> Most people have one provider.</td>
+      </tr>
+      <tr>
+        <td class="id">T5 Interrupts</td>
+        <td>Zero mechanical questions. Directional YES/NO with options only</td>
+        <td>Permission nags, or silence that L1 later catches</td>
+        <td>Silence is a cheat. L1 makes T5 honest.<sup><a href="#r16">16</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">T6 Rounds</td>
+        <td>Round 1, or ≤2, independent of size</td>
+        <td>Round 3+. Large diffs that need more rounds should have been a Project</td>
+        <td>Review loops cap at a few rounds.<sup><a href="#r11">11</a></sup> Size-gating extra rounds is gameable.</td>
+      </tr>
+      <tr>
+        <td class="id">T$ Cost</td>
+        <td>Always reported</td>
+        <td>Hidden, or graded against a cap we set</td>
+        <td>Senior SWE-Bench already publishes $ / task beside solve rate.<sup><a href="#r9">9</a></sup></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>First-pass merge-ready = <code>T2 ∧ T3 ∧ T4 ∧ T5 ∧ T6</code>.</p>
+
+  <h3>Project scorecard</h3>
+  <table>
+    <thead><tr><th>ID</th><th>YES</th><th>NO</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="id">P1 Class</td>
+        <td>A tripwire fired</td>
+        <td>Jumped to code on Phase-7-shaped work</td>
+        <td>Senior SWE-Bench splits investigate-and-fix vs design-and-build.<sup><a href="#r9">9</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">P2 Design</td>
+        <td>Repo file: problem, options, recommendation, open questions, test plan</td>
+        <td>Chat-only plan</td>
+        <td>Chat is not recoverable context.<sup><a href="#r6">6</a>,<a href="#r7">7</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">P3 Review</td>
+        <td>Human YES/NO after an independent written review (fresh session; different vendor recommended)</td>
+        <td>Implementation before YES</td>
+        <td>Design is where extrapolation is highest. Reviewer must not share the writer’s session.<sup><a href="#r12">12</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">P4 Children</td>
+        <td>Each child PR is a Task (T2–T6)</td>
+        <td>One grab-bag PR</td>
+        <td>Large diffs overwhelm review.<sup><a href="#r13">13</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">P5 Spec</td>
+        <td>Open questions resolved in git; named interfaces grep-able</td>
+        <td>Agent says “matches”</td>
+        <td>Binary, greppable. Not an LLM opinion.</td>
+      </tr>
+      <tr>
+        <td class="id">P6 Handoff</td>
+        <td>Brief contains accepted option, every resolved Q+A, remaining plan. Parsed fields</td>
+        <td>Summary that keeps the task and drops the rules</td>
+        <td><em>Lost in the Middle:</em> U-shaped use of long context.<sup><a href="#r6">6</a></sup> <em>Lost in Compaction:</em> compactors kept ~17% of session <strong>rules</strong> while still remembering the job.<sup><a href="#r7">7</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">P7 No re-ask</td>
+        <td>After handoff, no directional question already answered in the brief</td>
+        <td>Re-asks a resolved design question</td>
+        <td>Decision retention is “it did not forget,” measured.<sup><a href="#r6">6</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">P8 Reset</td>
+        <td>At the utilization threshold: write a brief, then reset. Not only delete middle turns</td>
+        <td>Silent truncation</td>
+        <td>Bigger windows delay degradation; they do not remove it.<sup><a href="#r6">6</a></sup> METR: the bottleneck on long software work is finishing the horizon.<sup><a href="#r8">8</a></sup></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">P6–P8 are the Project-specific addition. Tasks are usually one context. Projects are not. A Project that looks fine in the first hour and forgets the design in the third has failed these lines, even if T2 is green on the last PR.</p>
+
+  <h3>Growth</h3>
+  <table>
+    <thead><tr><th>ID</th><th>YES</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="id">G1 Wrote</td>
+        <td>New or updated SKILL.md (not a diary)</td>
+        <td>Skills package <em>how</em>. Session notes are <em>where we left off</em>. Different objects.<sup><a href="#r17">17</a></sup></td>
+      </tr>
+      <tr>
+        <td class="id">G2 Fired</td>
+        <td>Log shows load, and the declared precondition matched</td>
+        <td>A file nobody loads is not learning.</td>
+      </tr>
+      <tr>
+        <td class="id">G3 Delta</td>
+        <td>Report tokens / rounds / questions. No “helped” verdict on n=1. Pre-register one metric only if we can measure variance</td>
+        <td>One of three metrics often moves down by chance. Causal claims need a pre-registered outcome and a variance baseline.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Lagging practice — L1</h3>
+  <p>Of the last N merged Tasks, how many needed a corrective PR within 14 days. Wilson 95% CI. Lives in the weekly headline.</p>
+  <p>DORA change fail rate: the share of changes that need a hotfix, rollback, or fix-forward after they ship.<sup><a href="#r16">16</a></sup> Pre-merge gates cannot see this. T5 (silence) is honest only because L1 exists.</p>
+  <p>In-repo warning: convo-agent’s <code>coherence</code> tag ran on every turn and, in <code>evals/coherence/</code>, tagged a gaming turn <code>on_track</code> every time. A watcher LLM is not L1.</p>
+
+  <h2>Layer B — Public comparison</h2>
+  <p><strong>Headline:</strong> Senior SWE-Bench via Harbor, always with a same-model baseline scaffold row. Underspecified, PR-shaped, tasteful-solve. Published SOTA was about 29% in July 2026 — on a different model, which is why that number is never the only row.<sup><a href="#r9">9</a></sup></p>
+  <p><strong>Secondary only:</strong> Terminal-Bench 2.x, same three-row shape.<sup><a href="#r10">10</a></sup> Never the headline.</p>
+  <p><strong>Not on the card:</strong> SWE-bench Verified (saturated, no longer a frontier headline).<sup><a href="#r5">5</a>,<a href="#r18">18</a></sup> Aider Polyglot as capability. METR unless we actually freeze and run a suite.<sup><a href="#r8">8</a></sup> Kadmon’s current nonempty-patch harness.</p>
+  <ul class="check">
+    <li>Same harness as the cited row (Harbor).<sup><a href="#r10">10</a></sup></li>
+    <li>Three rows or the card is void.</li>
+    <li>Same split the leaderboard uses. If the public split is dirty, use the authors’ recommended split.<sup><a href="#r18">18</a></sup></li>
+    <li>No gold-PR lookup. Newer models reward-hack.<sup><a href="#r9">9</a></sup></li>
+    <li>Cost and wall-clock on all three rows.</li>
+    <li>We do not tune prompts on the split we report.</li>
+  </ul>
+
+  <h2>What we will not score as a goal</h2>
+  <ul class="check">
+    <li>SWE-bench Verified headline %</li>
+    <li>Aider Polyglot as capability</li>
+    <li>Live LLM-as-watcher</li>
+    <li>1–5 taste scores<sup><a href="#r1">1</a>,<a href="#r2">2</a></sup></li>
+    <li>Library file count</li>
+    <li>A dollar cap we set ourselves</li>
+    <li>“Helped” on a single pair of Tasks</li>
+  </ul>
+
+  <h2>What the adversarial review changed</h2>
+  <p>Opus 4.8 reviewed the previous draft. Accepted: same-model baseline or the card is void; T2 cannot hide deleted tests; T4+T6 cannot reward a toothless reviewer; G3 cannot claim causation on n=1; class from the diff; post-merge corrective PRs; Wilson intervals; second repo before a general Layer A claim; rounds independent of size.</p>
+  <p>This revision adds P6–P8 (context on long Projects) and replaces intuition-only rationale with the sources below. Sign-in is not scored here; it has its own doc so it does not share this context window.</p>
+
+  <h2>References</h2>
+  <ol class="refs">
+    <li id="r1">Hamel Husain, <em>LLM Evals FAQ</em> — binary pass/fail over Likert; code assertions before LLM-as-judge. <a href="https://hamel.dev/blog/posts/evals-faq/">hamel.dev/blog/posts/evals-faq</a></li>
+    <li id="r2">Arize, <em>LLM as a Judge</em> primer — binary verdicts more stable than fine numeric scales. <a href="https://arize.com/guides/llm-as-a-judge/">arize.com/guides/llm-as-a-judge</a></li>
+    <li id="r3">Lianmin Zheng et al., <em>Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena</em>, NeurIPS 2023. <a href="https://arxiv.org/abs/2306.05685">arXiv:2306.05685</a></li>
+    <li id="r4">Carlos E. Jimenez et al., <em>SWE-bench</em>, ICLR 2024 — FAIL_TO_PASS and PASS_TO_PASS. <a href="https://arxiv.org/abs/2310.06770">arXiv:2310.06770</a></li>
+    <li id="r5">OpenAI, <em>Introducing SWE-bench Verified</em> (2024); later dropped as a frontier headline (2026). <a href="https://openai.com/index/introducing-swe-bench-verified/">openai.com</a></li>
+    <li id="r6">Nelson F. Liu et al., <em>Lost in the Middle</em>, TACL 2024 — U-shaped use of long context. <a href="https://arxiv.org/abs/2307.03172">arXiv:2307.03172</a></li>
+    <li id="r7"><em>Lost in Compaction</em> — compactors kept ~17% of session rules while remembering the task. <a href="https://arxiv.org/abs/2608.11242">arXiv:2608.11242</a></li>
+    <li id="r8">METR, time horizons for long software tasks. <a href="https://metr.org/time-horizons/">metr.org/time-horizons</a> · <a href="https://arxiv.org/abs/2503.14499">arXiv:2503.14499</a></li>
+    <li id="r9">Snorkel AI, <em>Senior SWE-Bench</em> (2026) — underspecified prompts, tasteful-solve ~29%, $ / task. <a href="https://snorkel.ai/blog/senior-swe-bench-evaluating-coding-agents-like-senior-engineers/">snorkel.ai</a></li>
+    <li id="r10">Mike A. Merrill et al., <em>Terminal-Bench</em>, ICLR 2026 — Harbor; model often &gt; scaffold. <a href="https://arxiv.org/abs/2601.11868">arXiv:2601.11868</a></li>
+    <li id="r11">Zhengran Zeng et al., SWR-Bench / Multi-Review. <a href="https://arxiv.org/abs/2509.01494">arXiv:2509.01494</a></li>
+    <li id="r12"><em>Mitigating Agreeableness Bias in LLM Judge Evaluations</em>. <a href="https://arxiv.org/abs/2510.11822">arXiv:2510.11822</a></li>
+    <li id="r13">Cursor, <em>Building a better Bugbot</em> (2026) — parallel passes, majority vote. Pattern, not our number. <a href="https://cursor.com/blog/building-bugbot">cursor.com/blog/building-bugbot</a></li>
+    <li id="r14">E. B. Wilson (1927); Brown, Cai, DasGupta, <em>Interval Estimation for a Binomial Proportion</em>, Statistical Science 16(2), 2001. <a href="https://doi.org/10.1214/ss/1009213286">doi:10.1214/ss/1009213286</a></li>
+    <li id="r15">René Just et al., <em>Are Mutants a Valid Substitute for Real Faults?</em>, ICSE 2014; mutation testing at Google (ICST 2018).</li>
+    <li id="r16">DORA, change fail rate. <a href="https://dora.dev/guides/dora-metrics/">dora.dev/guides/dora-metrics</a></li>
+    <li id="r17">Anthropic, <em>Agent Skills</em> — skills package how-to, not session memory. <a href="https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview">platform.claude.com</a></li>
+    <li id="r18">SWE-bench Pro / ProMax; OpenAI audit that ~30% of Pro public tasks were broken. <a href="https://arxiv.org/html/2608.09802v1">arXiv:2608.09802</a></li>
+  </ol>
+  <p class="note">In-repo: convo-agent <code>evals/coherence/</code> (V0) — a live watcher tag that never caught the gaming turn.</p>
+
+  <footer>
+    Working spec. Not yet VISION.md. Grok wrote; Opus 4.8 reviewed an earlier draft; this revision adds sources and Project handoff lines. Sign-in is <a href="subscription-auth.md">subscription-auth.md</a>.
+  </footer>
+</div>
+</body>
+</html>

@@ -10,9 +10,19 @@ Every change must follow this cycle:
 2. **Implement** — Make minimal, focused changes. One concern per edit.
 3. **Lint** — Run `ruff check kadmon/ tests/` and fix any issues.
 4. **Test** — Run `pytest tests/ -v`. All tests must pass. If you added new functionality, add tests for it.
-5. **Commit** — Use conventional commits (see below). Only commit when lint + tests pass.
+5. **Branch + PR** — Never commit to `main`. Open a pull request. Only commit when lint + tests pass. Use conventional commits (see below).
 
 Do not skip steps. Do not commit broken code.
+
+## Git workflow
+
+This checkout tracks **https://github.com/alemtani/kadmon** (fork of
+[ayuan153/kadmon](https://github.com/ayuan153/kadmon)).
+
+- `origin` → `alemtani/kadmon`
+- `upstream` → `ayuan153/kadmon` (read-only reference)
+- Create a branch from `main`, push to `origin`, open a PR against `alemtani/kadmon`.
+- Do not push to `upstream`. Do not commit on `main`.
 
 ## Development Setup
 

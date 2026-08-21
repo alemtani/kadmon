@@ -1,8 +1,17 @@
 # Kadmon Roadmap
 
-How we get from a mature engine with a bare cockpit to a state-of-the-art agent with a
-defensible edge. This is the execution path behind [VISION.md](VISION.md); the landscape it
-responds to is in [docs/design/competitive-analysis.md](docs/design/competitive-analysis.md).
+Execution path behind [VISION.md](VISION.md) **v2 (August 2026)**. Measurement:
+[docs/success-criteria.md](docs/success-criteria.md). Sign-in:
+[docs/subscription-auth.md](docs/subscription-auth.md).
+
+**Now:** subscription sign-in (Grok device-code first). Without it the agent is not
+usable for a user who already pays SuperGrok. Then the Task / Project loop against
+the scorecards. Cockpit and parity items below remain useful; they are not the
+north star anymore.
+
+The landscape note in
+[docs/design/competitive-analysis.md](docs/design/competitive-analysis.md) is
+historical. Several cockpit gaps it lists have shipped.
 
 ## How to read this
 
@@ -27,9 +36,12 @@ Newest first. Sequencing, not a changelog — see git history for detail.
 - **✅ Shipped (earlier):** verification-first inner loop (rollback + retry on verify failure)
   `[wedge]`; rich rendering (colored diffs + syntax-highlighted code blocks) `[parity]`; in-chat
   slash commands `[parity]`; streaming parity across all four providers `[parity]`.
-- **Next candidates:** tool-activity spinners/progress `[parity]`; the "handing off now" moment +
-  ask-vs-act framing `[wedge]`; verification-as-the-gate with evidence shown in the UI `[wedge]`;
-  MCP support `[parity]`.
+- **Next:** Grok subscription sign-in (`kadmon login`) so SuperGrok users are not billed a
+  second API meter. Spec: [docs/subscription-auth.md](docs/subscription-auth.md) and
+  [docs/design/p1/provider-oauth.md](docs/design/p1/provider-oauth.md).
+- **After that (cockpit leftovers):** tool-activity spinners/progress `[parity]`; the
+  "handing off now" moment + ask-vs-act framing `[wedge]`; verification evidence in the UI
+  `[wedge]`; MCP `[parity]`.
 - **Foundation (pre-roadmap):** ReAct loop with architect/editor phases, library team, dual-layer
   persistence, autonomous handoff, checkpoints/rewind/rollback, symbol index, parallel workers,
   eval harnesses.
