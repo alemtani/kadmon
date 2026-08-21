@@ -83,15 +83,17 @@ with no `XAI_API_KEY` fails at config resolve, before a provider exists.
 
 Precedence at runtime, highest first:
 
-1. `kind == grok` **and** a live grant in the token store. This wins on its
-   own. Do not read `auth =` to reach it.
+1. A live grant for the provider's **kind** (the vendor name) in the token
+   store. This wins on its own. Do not read `auth =` to reach it. Look the
+   grant up with `kadmon.auth.live(kind)`, not a Grok-only helper.
 2. The `auth =` spec — `env:VAR` or `credentials:name`.
 3. Error, with one line on how to sign in or set a key.
 
-`auth = "oauth:grok"` is a **record** that `login` and `init` write so
+`auth = "oauth:<vendor>"` is a **record** that `login` and `init` write so
 `config.toml` shows where the credential came from. It is not the switch that
 makes precedence work. A signed-in user whose config never gained that line
-must still get rule 1. `oauth:` on a non-grok kind is a config error.
+must still get rule 1. `oauth:` on a kind that is not that vendor is a config
+error. An untested vendor must not drive a different kind's run.
 
 Do not reuse `is_local` or the `"not-needed"` sentinel. Those exist for local
 endpoints. They must not carry a subscription session.
@@ -105,9 +107,11 @@ A live grant must be enough to start from nothing. Two places ignore it today:
 - `Settings.resolve` raises "No providers configured" (`kadmon/config.py:105`)
   when `config.toml` is absent, even with a live grant.
 
-Discovery reads the token store. A live grant makes Grok available and says
-so. `resolve` synthesises a Grok provider from a live grant when no config
-entry exists.
+Discovery reads the token store. A live grant for a registered vendor makes
+that vendor available and says so. `resolve` synthesises a provider from a
+live grant when no config entry exists. If several tested vendors are signed
+in and config names none, ask which one. An untested vendor is ignored when a
+tested one (Grok) is also signed in.
 
 ### Host and headers
 
@@ -388,18 +392,22 @@ fake the token endpoint and the proxy. Names map to the rows above.
 The OAuth dance is per vendor. The store and `kadmon login` dispatch are shared.
 
 1. Subclass `kadmon.auth.Vendor` in `kadmon/auth/<name>.py`. Implement
-   `login`. Override `refresh_grant` if the vendor refreshes tokens.
+   `login`. Override `refresh_grant` if the vendor refreshes tokens. Override
+   `pool_spent_message` if the completions host has a spent-pool status.
 2. Set `tested = False` until the live endpoints are verified. Login then
    prints one experimental-path line. OpenAI, Codex, and anything else we have
    not run against a real account stay in this state.
 3. Call `register(YourVendor())` in `kadmon/auth/__init__.py`.
+4. Add the completions transport on the provider (host, headers). Do not
+   reuse SuperGrok's proxy or CLI-identity headers. Factory grant lookup is
+   already by kind.
 
 Do not copy `xai.py` and swap URLs unless the vendor is RFC 8628 device-code
 with the same field names. Claude is a local CLI, not this class of flow.
 
-PR 2 reads a live grant with `kadmon.auth.live("grok")`, not
+Wiring reads a live grant with `kadmon.auth.live(kind)`, not
 `kadmon.auth.xai.live_grant`. A second vendor is then a new module plus a
-table name.
+table name plus provider transport.
 
 ## Pointers
 

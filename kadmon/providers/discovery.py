@@ -16,6 +16,7 @@ from kadmon.config import (
     KIND_GROK,
     KIND_OPENAI,
     ProviderConfig,
+    stored_grant,
 )
 
 
@@ -58,25 +59,27 @@ def _env_candidate(
     )
 
 
-def _grok_candidate() -> Candidate:
-    """Grok is available when a subscription session exists, key or no key.
+def _kind_candidate(name: str, kind: str, label: str) -> Candidate:
+    """Available when a subscription session exists, key or no key."""
+    from kadmon.auth import find_vendor
 
-    A signed-in user must never be told "XAI_API_KEY not set".
-    """
-    from kadmon.config import stored_grok_grant
+    vendor = find_vendor(kind)
+    if vendor is None:
+        return _env_candidate(name, kind, label)
 
-    grant = stored_grok_grant()
+    grant = stored_grant(vendor.name)
     if grant is None:
-        return _env_candidate("grok", KIND_GROK, "xAI Grok")
+        return _env_candidate(name, kind, vendor.display_name)
 
-    who = grant.account or "your xAI account"
+    who = grant.account or f"your {vendor.display_name} account"
+    extra = f" — {vendor.available_detail}" if vendor.available_detail else ""
     return Candidate(
-        name="grok",
-        kind=KIND_GROK,
-        label="xAI Grok",
+        name=name,
+        kind=kind,
+        label=vendor.display_name,
         available=True,
-        detail=f"signed in as {who} — runs on your SuperGrok pool",
-        auth="oauth:grok",
+        detail=f"signed in as {who}{extra}",
+        auth=f"oauth:{vendor.name}",
     )
 
 
@@ -95,12 +98,33 @@ def _aws_candidate() -> Candidate:
 def discover() -> list[Candidate]:
     """List every provider kadmon could configure, available or not.
 
-    Order is usage popularity, then Bedrock.
+    Order is usage popularity, then Bedrock. Registered vendors whose kind is
+    already a provider appear in that slot; extra vendor names that are also
+    known kinds are appended before Bedrock.
     """
-    return [
+    listed = [
         _env_candidate("anthropic", KIND_ANTHROPIC, "Anthropic"),
         _env_candidate("openai", KIND_OPENAI, "OpenAI"),
-        _grok_candidate(),
+        _kind_candidate("grok", KIND_GROK, "xAI Grok"),
         _env_candidate("gemini", KIND_GEMINI, "Google Gemini"),
         _aws_candidate(),
     ]
+    return _append_extra_vendors(listed)
+
+
+def _append_extra_vendors(listed: list[Candidate]) -> list[Candidate]:
+    from kadmon.auth import find_vendor, vendor_names
+
+    seen = {c.kind for c in listed}
+    extra = []
+    for name in vendor_names():
+        if name in seen or name not in KIND_DEFAULTS:
+            continue
+        vendor = find_vendor(name)
+        if vendor is None:
+            continue
+        extra.append(_kind_candidate(name, name, vendor.display_name))
+    if not extra:
+        return listed
+    # Keep Bedrock last.
+    return listed[:-1] + extra + listed[-1:]

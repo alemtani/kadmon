@@ -5,9 +5,10 @@ token. A subscription grant goes to `cli-chat-proxy.grok.com/v1` and draws from
 the SuperGrok pool. A live grant always wins — see `docs/subscription-auth.md`.
 """
 
-import openai
-
+from kadmon.auth.store import Grant
+from kadmon.auth.vendor import Vendor
 from kadmon.providers.openai_provider import OpenAIProvider
+from kadmon.providers.subscription import GrantClient
 
 XAI_BASE_URL = "https://api.x.ai/v1"
 PROXY_BASE_URL = "https://cli-chat-proxy.grok.com/v1"
@@ -31,15 +32,7 @@ POOL_SPENT = (
 SESSION_ENDED = "Your xAI Grok session ended. Run 'kadmon login grok' to sign in again."
 
 
-class PoolExhausted(Exception):
-    """The subscription pool, credit, or spending cap is spent.
-
-    This is not a dead session. It means wait, not sign in again. Never fall
-    back to an API key on it.
-    """
-
-
-class GrokProvider(OpenAIProvider):
+class GrokProvider(GrantClient, OpenAIProvider):
     """LLM provider using the xAI Grok API.
 
     Grok speaks the OpenAI chat-completions protocol, so this class reuses
@@ -52,13 +45,19 @@ class GrokProvider(OpenAIProvider):
         api_key: str = "",
         max_tokens: int = 8192,
         base_url: str = "",
-        grant=None,
+        grant: Grant | None = None,
+        vendor: Vendor | None = None,
     ) -> None:
         self.grant = grant
+        self.vendor = vendor
         if grant is not None:
             # A grant sent to api.x.ai bills the console meter. Pin the proxy.
             api_key = grant.access_token
             base_url = PROXY_BASE_URL
+            if self.vendor is None:
+                from kadmon.auth import find_vendor
+
+                self.vendor = find_vendor("grok")
 
         super().__init__(
             model=model,
@@ -67,43 +66,3 @@ class GrokProvider(OpenAIProvider):
             base_url=base_url or XAI_BASE_URL,
             default_headers=CLI_HEADERS if grant is not None else None,
         )
-
-    def _call_with_retry(self, kwargs: dict):
-        """Send the call, refreshing a rejected token once.
-
-        `complete()` and `stream()` both come through here, so both get the
-        refresh, the single retry, and the pool-exhaustion stop.
-        """
-        try:
-            return self._guarded(kwargs)
-        except openai.AuthenticationError:
-            if self.grant is None:
-                raise
-            self._refresh()
-            try:
-                return self._guarded(kwargs)
-            except openai.AuthenticationError as exc:
-                # A fresh token was rejected too. Stop; do not loop.
-                raise _auth_error(SESSION_ENDED) from exc
-
-    def _guarded(self, kwargs: dict):
-        """Run the inherited retry, but never retry a spent pool."""
-        try:
-            return super()._call_with_retry(kwargs)
-        except openai.APIStatusError as exc:
-            if exc.status_code == 402:
-                raise PoolExhausted(POOL_SPENT) from exc
-            raise
-
-    def _refresh(self) -> None:
-        """Trade the refresh token for a new access token, and use it."""
-        from kadmon.auth import xai
-
-        self.grant = xai.refresh_grant(self.grant)
-        self.client.api_key = self.grant.access_token
-
-
-def _auth_error(message: str) -> Exception:
-    from kadmon.auth import xai
-
-    return xai.AuthError(message)

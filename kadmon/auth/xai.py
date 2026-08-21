@@ -203,6 +203,9 @@ class GrokVendor(Vendor):
     display_name = "xAI Grok"
     tested = True
     success_hint = "Runs now draw from your SuperGrok pool, not a console API key."
+    run_notice = "Running on your SuperGrok subscription pool."
+    key_env = "XAI_API_KEY"
+    available_detail = "runs on your SuperGrok pool"
 
     def login(self, show: Callable[[LoginPrompt], None]) -> Grant:
         device = request_device_code()
@@ -211,3 +214,10 @@ class GrokVendor(Vendor):
 
     def refresh_grant(self, grant: Grant) -> Grant:
         return refresh_grant(grant)
+
+    def pool_spent_message(self, status_code: int) -> str | None:
+        if status_code != 402:
+            return None
+        from kadmon.providers.grok import POOL_SPENT
+
+        return POOL_SPENT

@@ -2,7 +2,7 @@
 
 import pytest
 
-from kadmon.auth import xai
+from kadmon.auth import store
 
 
 @pytest.fixture(autouse=True)
@@ -11,4 +11,4 @@ def isolated_token_store(tmp_path, monkeypatch):
 
     A live grant on the developer's machine must never change what a test does.
     """
-    monkeypatch.setattr(xai, "TOKENS_PATH", tmp_path / "tokens" / "tokens.toml")
+    monkeypatch.setattr(store, "TOKENS_PATH", tmp_path / "tokens" / "tokens.toml")

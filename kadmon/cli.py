@@ -78,7 +78,7 @@ def _make_provider(provider: str, model: str, aws_region: str, repo_path: str = 
     Flags win over config, but only when actually passed — click gives us None
     otherwise, which falls through to the configured value.
     """
-    from kadmon.auth.xai import AuthError
+    from kadmon.auth import AuthError
     from kadmon.config import ConfigError, load_settings
     from kadmon.providers.factory import build_provider
 
@@ -98,11 +98,12 @@ def _make_provider(provider: str, model: str, aws_region: str, repo_path: str = 
 
 
 def _provider_after_signout(config, exc: Exception):
-    """The Grok session is dead, not the pool. Offer a key, but only on a terminal.
+    """The session is dead, not the pool. Offer a key, but only on a terminal.
 
     `eval` and `bench` have no terminal, so they stop here. The factory and the
     provider never reach this code — the CLI owns every question.
     """
+    from kadmon.auth import find_vendor
     from kadmon.config import CREDENTIALS_PATH, write_credential
     from kadmon.providers.factory import build_provider
 
@@ -110,13 +111,14 @@ def _provider_after_signout(config, exc: Exception):
     if not _is_tty():
         raise SystemExit(1) from exc
 
+    vendor = find_vendor(config.kind)
+    label = vendor.display_name if vendor else config.kind
     click.echo(
-        "An xAI API key works instead. It bills per token from console.x.ai, "
-        "not your SuperGrok pool.",
+        f"An API key works instead. It bills per token, not your {label} subscription.",
         err=True,
     )
     key = click.prompt(
-        "xAI API key (Enter to stop)", hide_input=True, default="", show_default=False
+        f"{label} API key (Enter to stop)", hide_input=True, default="", show_default=False
     )
     if not key:
         raise SystemExit(1) from exc
@@ -135,8 +137,8 @@ def _subscription_limits():
     The two cases must not read the same. A spent pool means wait. A dead
     session means sign in again.
     """
-    from kadmon.auth.xai import AuthError
-    from kadmon.providers.grok import PoolExhausted
+    from kadmon.auth import AuthError
+    from kadmon.providers.subscription import PoolExhausted
 
     try:
         yield
@@ -776,7 +778,6 @@ def init(local):
         CREDENTIALS_PATH,
         GLOBAL_CONFIG_PATH,
         KIND_DEFAULTS,
-        KIND_GROK,
         PROJECT_CONFIG_RELPATH,
         write_config,
         write_credential,
@@ -814,9 +815,9 @@ def init(local):
         model = click.prompt("  Model", default=c.model or KIND_DEFAULTS[c.kind]["model"])
         config = c.to_config().model_copy(update={"model": model})
 
-        if not c.available and c.kind == KIND_GROK:
-            # Sign-in first. A key is the fallback, and only if they decline.
-            config = _offer_grok_signin(config)
+        if not c.available:
+            # Sign-in first when this kind has a vendor. A key is the fallback.
+            config = _offer_signin(config)
 
         if not c.available and c.auth.startswith("env:") and not config.auth.startswith("oauth:"):
             key = click.prompt("  API key", hide_input=True, default="", show_default=False)
@@ -856,32 +857,48 @@ def init(local):
     click.echo('\nTry: kadmon run --task "Describe what this project does"')
 
 
-def _offer_grok_signin(config):
-    """Ask to sign in to SuperGrok before asking for a key.
+def _offer_signin(config):
+    """Ask to sign in before asking for a key.
 
-    Returns the config to keep. `auth = "oauth:grok"` records where the
+    Returns the config to keep. `auth = "oauth:<vendor>"` records where the
     credential came from; the token store is what makes the run work.
     """
-    from kadmon.auth import xai
+    from kadmon.auth import AuthError, find_vendor
 
-    click.echo("  A SuperGrok subscription runs kadmon from your pool.")
-    click.echo("  An API key from console.x.ai bills per token instead.")
-    if not click.confirm("  Sign in to SuperGrok?", default=True):
+    vendor = find_vendor(config.kind)
+    if vendor is None:
+        return config
+
+    click.echo(f"  A {vendor.display_name} subscription runs kadmon from your pool.")
+    click.echo("  An API key bills per token instead.")
+    if not vendor.tested:
+        click.echo(
+            f"  Note: {vendor.display_name} sign-in is experimental and may not be fully tested."
+        )
+    if not click.confirm(f"  Sign in to {vendor.display_name}?", default=vendor.tested):
         return config
 
     try:
-        device = xai.request_device_code()
-        click.echo(f"\n  Open {device.url}")
-        click.echo(f"  Confirm this code: {device.user_code}")
-        click.echo("  Waiting for you to approve...")
-        grant = xai.poll_for_grant(device)
-        xai.save_grant(grant)
-    except xai.AuthError as exc:
+        grant = vendor.login(_init_login_prompt)
+        vendor.save_grant(grant)
+    except AuthError as exc:
         click.echo(f"  {exc}")
         return config
 
-    click.echo(f"  Signed in as {grant.account or 'your xAI account'}.")
-    return config.model_copy(update={"auth": "oauth:grok"})
+    who = grant.account or f"your {vendor.display_name} account"
+    click.echo(f"  Signed in as {who}.")
+    return config.model_copy(update={"auth": f"oauth:{vendor.name}"})
+
+
+def _init_login_prompt(prompt) -> None:
+    if prompt.url:
+        click.echo(f"\n  Open {prompt.url}")
+        if prompt.user_code:
+            click.echo(f"  Confirm this code: {prompt.user_code}")
+        click.echo("  Waiting for you to approve...")
+        return
+    if prompt.message:
+        click.echo(f"  {prompt.message}")
 
 
 def _test_provider(config) -> tuple[bool, str]:

@@ -8,14 +8,21 @@ import os
 
 import click
 
+from kadmon.auth.store import Grant
+from kadmon.auth.vendor import Vendor
 from kadmon.config import (
     KIND_ANTHROPIC,
     KIND_BEDROCK,
+    KIND_DEFAULTS,
     KIND_GEMINI,
     KIND_GROK,
     KIND_OPENAI,
     ProviderConfig,
 )
+
+# Kinds whose provider can send a grant. Completions hosts stay per provider —
+# a Codex grant must not hit the SuperGrok proxy, and vice versa.
+_GRANT_KINDS = frozenset({KIND_GROK})
 
 
 def build_provider(config: ProviderConfig, max_tokens: int = 8192, api_key: str = ""):
@@ -38,13 +45,47 @@ def _construct(config: ProviderConfig, max_tokens: int, forced_key: str = ""):
             model=config.model, aws_region=config.aws_region, max_tokens=max_tokens
         )
 
-    if config.kind == KIND_GROK and not forced_key:
-        provider = _grok_on_subscription(config, max_tokens)
+    if not forced_key:
+        provider = _on_subscription(config, max_tokens)
         if provider is not None:
             return provider
 
     api_key = forced_key or config.resolve_key()
+    return _build_llm(config, max_tokens, api_key=api_key)
 
+
+def _on_subscription(config: ProviderConfig, max_tokens: int):
+    """Build on a live grant for `config.kind`, or None when there is none.
+
+    Looks up the vendor registry by kind, not a Grok-only helper. A live grant
+    wins on its own — `auth = "oauth:<vendor>"` only records where the
+    credential came from.
+    """
+    from kadmon.auth import live
+
+    if config.kind not in _GRANT_KINDS:
+        return None
+    vendor = _vendor_for(config.kind)
+    if vendor is None:
+        return None
+
+    grant = live(config.kind)
+    if grant is None:
+        return None
+
+    provider = _build_llm(config, max_tokens, grant=grant, vendor=vendor)
+    for line in _subscription_notices(config, vendor, provider):
+        click.echo(line, err=True)
+    return provider
+
+
+def _build_llm(
+    config: ProviderConfig,
+    max_tokens: int,
+    api_key: str = "",
+    grant: Grant | None = None,
+    vendor: Vendor | None = None,
+):
     if config.kind == KIND_ANTHROPIC:
         from kadmon.providers.anthropic import AnthropicProvider
 
@@ -63,6 +104,8 @@ def _construct(config: ProviderConfig, max_tokens: int, forced_key: str = ""):
             api_key=api_key,
             max_tokens=max_tokens,
             base_url=config.base_url,
+            grant=grant,
+            vendor=vendor,
         )
 
     if config.kind == KIND_OPENAI:
@@ -78,33 +121,22 @@ def _construct(config: ProviderConfig, max_tokens: int, forced_key: str = ""):
     raise ValueError(f"Unsupported provider kind: {config.kind}")
 
 
-def _grok_on_subscription(config: ProviderConfig, max_tokens: int):
-    """Build Grok on a live subscription, or return None when there is none.
+def _vendor_for(kind: str):
+    from kadmon.auth import find_vendor
 
-    This runs before `resolve_key`, which raises when no key is set. A live
-    grant wins on its own — `auth = "oauth:grok"` only records where the
-    credential came from, so a config that never gained that line still works.
-    """
-    from kadmon.auth import xai
-    from kadmon.providers.grok import GrokProvider
-
-    grant = xai.live_grant()
-    if grant is None:
-        return None
-
-    for line in _subscription_notices(config):
-        click.echo(line, err=True)
-
-    return GrokProvider(model=config.model, max_tokens=max_tokens, grant=grant)
+    return find_vendor(kind)
 
 
-def _subscription_notices(config: ProviderConfig) -> list[str]:
+def _subscription_notices(config: ProviderConfig, vendor: Vendor, provider) -> list[str]:
     """One line each for anything the subscription overrode."""
-    from kadmon.providers.grok import PROXY_BASE_URL
-
-    lines = ["Running on your SuperGrok subscription pool."]
-    if os.environ.get("XAI_API_KEY"):
-        lines.append("XAI_API_KEY is set and ignored — a key bills per token.")
-    if config.base_url and config.base_url.rstrip("/") != PROXY_BASE_URL:
-        lines.append(f"base_url {config.base_url} overridden with {PROXY_BASE_URL}.")
+    lines = []
+    if vendor.run_notice:
+        lines.append(vendor.run_notice)
+    env_name = KIND_DEFAULTS.get(config.kind, {}).get("env") or vendor.key_env
+    if env_name and os.environ.get(env_name):
+        lines.append(f"{env_name} is set and ignored — a key bills per token.")
+    used = str(getattr(provider, "base_url", "") or "").rstrip("/")
+    configured = (config.base_url or "").rstrip("/")
+    if configured and used and configured != used:
+        lines.append(f"base_url {config.base_url} overridden with {used}.")
     return lines

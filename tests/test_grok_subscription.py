@@ -22,8 +22,8 @@ from kadmon.providers.grok import (
     SESSION_ENDED,
     XAI_BASE_URL,
     GrokProvider,
-    PoolExhausted,
 )
+from kadmon.providers.subscription import PoolExhausted
 
 TOKEN_PAYLOAD = {"access_token": "fresh-token", "refresh_token": "refresh-2", "expires_in": 3600}
 
@@ -215,6 +215,44 @@ def test_401_refreshes_once_and_succeeds(config_home, signed_in, monkeypatch):
     assert provider.client.api_key == "fresh-token"
 
 
+def test_401_cannot_loop(config_home, signed_in, monkeypatch):
+    """A 401 refreshes once and retries once. Calls never nest, even if every
+    attempt is a 401 — this is not `super()._call_with_retry` re-entering the
+    child.
+    """
+    provider = build_provider(grok_config())
+    depth = {"n": 0, "max": 0}
+    calls = 0
+    refreshes = {"n": 0}
+
+    def tracked(**kwargs):
+        nonlocal calls
+        calls += 1
+        depth["n"] += 1
+        depth["max"] = max(depth["max"], depth["n"])
+        try:
+            raise api_error(401)
+        finally:
+            depth["n"] -= 1
+
+    def counting_post(url, fields, timeout=30.0):
+        refreshes["n"] += 1
+        if refreshes["n"] > 1:
+            raise AssertionError("refresh ran more than once")
+        return TOKEN_PAYLOAD
+
+    provider.client.chat.completions.create = tracked
+    monkeypatch.setattr(xai, "_post_form", counting_post)
+
+    with pytest.raises(xai.AuthError) as caught:
+        provider.complete(messages=[])
+
+    assert str(caught.value) == SESSION_ENDED
+    assert calls == 2
+    assert depth["max"] == 1, "sequential attempts, never recursive"
+    assert refreshes["n"] == 1
+
+
 # --- 10, 11: a spent pool never becomes a key ---
 
 
@@ -312,10 +350,19 @@ def test_no_duplicate_auth_header(config_home, signed_in):
     assert sent["x-grok-client-identifier"] == "grok-shell"
 
 
-def test_oauth_on_a_non_grok_kind_is_a_config_error(config_home, tmp_path):
-    """`oauth:` records a Grok sign-in. No other kind has one."""
+def test_oauth_on_a_non_matching_kind_is_a_config_error(config_home, tmp_path):
+    """`oauth:<vendor>` is a record for that vendor. A different kind is wrong."""
     (config_home / "config.toml").write_text(
         '[providers.claude]\nkind = "anthropic"\nauth = "oauth:claude"\n'
+    )
+    with pytest.raises(ConfigError, match="not 'claude'"):
+        load_settings(tmp_path)
+
+
+def test_oauth_on_an_unregistered_kind_is_a_config_error(config_home, tmp_path):
+    """Matching kind and record, but no vendor registered, is still a config error."""
+    (config_home / "config.toml").write_text(
+        '[providers.openai]\nkind = "openai"\nauth = "oauth:openai"\n'
     )
     with pytest.raises(ConfigError, match="no sign-in"):
         load_settings(tmp_path)
@@ -333,6 +380,54 @@ def test_grant_wins_without_the_oauth_record(config_home, signed_in):
     provider = build_provider(grok_config(auth="env:XAI_API_KEY"))
 
     assert str(provider.client.base_url).startswith(PROXY_BASE_URL)
+
+
+def test_factory_reads_grant_through_the_vendor_registry(config_home, signed_in, monkeypatch):
+    """Precedence goes through `kadmon.auth.live`, not a Grok-only helper."""
+    from kadmon import auth
+
+    seen: list[str] = []
+    real = auth.live
+
+    def wrapped(name: str):
+        seen.append(name)
+        return real(name)
+
+    monkeypatch.setattr(auth, "live", wrapped)
+    provider = build_provider(grok_config())
+
+    assert seen == ["grok"]
+    assert provider.client.api_key == "access-1"
+    assert str(provider.client.base_url).startswith(PROXY_BASE_URL)
+
+
+def test_untested_vendor_does_not_take_over_grok(config_home, signed_in):
+    """An experimental vendor's grant must not drive a Grok run."""
+    from collections.abc import Callable
+
+    from kadmon.auth import Grant, LoginPrompt, Vendor, register, unregister
+    from kadmon.providers.discovery import discover
+
+    class Other(Vendor):
+        name = "codex"
+        display_name = "Codex"
+        tested = False
+
+        def login(self, show: Callable[[LoginPrompt], None]) -> Grant:
+            raise AssertionError("must not login")
+
+    register(Other())
+    try:
+        Other().save_grant(Grant("codex-token", account="c@example.com"))
+        grok = next(c for c in discover() if c.name == "grok")
+        assert grok.available
+        assert "codex-token" not in grok.detail
+        provider = build_provider(grok_config())
+        assert provider.client.api_key == "access-1"
+        config = load_settings(config_home).resolve()
+        assert config.kind == "grok"
+    finally:
+        unregister("codex")
 
 
 # --- 17: the stream path is not a second, unguarded transport ---

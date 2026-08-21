@@ -47,6 +47,12 @@ class Vendor(ABC):
     display_name: str
     tested: bool = False
     success_hint: str = ""
+    # Printed when a live grant drives a run. Empty means no extra line.
+    run_notice: str = ""
+    # Env var a live grant ignores. Empty means none.
+    key_env: str = ""
+    # Extra words after "signed in as …" in `kadmon init`. Empty is fine.
+    available_detail: str = ""
 
     def load_grant(self) -> Grant | None:
         return load(self.name)
@@ -77,6 +83,20 @@ class Vendor(ABC):
             return self.refresh_grant(grant)
         return grant
 
+    def pool_spent_message(self, status_code: int) -> str | None:
+        """Stop-message when `status_code` means the pool is spent, else None.
+
+        SuperGrok uses 402. Other vendors leave this as None until they
+        declare their own signal. Do not guess.
+        """
+        return None
+
+    def session_ended_message(self) -> str:
+        return (
+            f"Your {self.display_name} session ended. "
+            f"Run 'kadmon login {self.name}' to sign in again."
+        )
+
 
 _VENDORS: dict[str, Vendor] = {}
 
@@ -91,9 +111,14 @@ def unregister(name: str) -> None:
     _VENDORS.pop(name, None)
 
 
+def find_vendor(name: str) -> Vendor | None:
+    """Return the registered vendor, or None when `name` is not one."""
+    return _VENDORS.get(name)
+
+
 def get_vendor(name: str) -> Vendor:
     """Return the registered vendor, or raise `AuthError`."""
-    vendor = _VENDORS.get(name)
+    vendor = find_vendor(name)
     if vendor is None:
         names = ", ".join(vendor_names()) or "(none registered)"
         raise AuthError(f"Unknown vendor {name!r}. Choose one of: {names}.")

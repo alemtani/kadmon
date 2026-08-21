@@ -70,12 +70,13 @@ class ProviderConfig(BaseModel):
             # source, and it is not what makes a subscription win — the factory
             # checks the token store before it ever gets here. Reaching this
             # point means the session is gone, so fall back to the key.
-            var = KIND_DEFAULTS[self.kind]["env"]
-            key = os.environ.get(var, "")
+            var = KIND_DEFAULTS.get(self.kind, {}).get("env", "")
+            key = os.environ.get(var, "") if var else ""
             if not key:
+                extra = f", or set {var}" if var else ""
                 raise ConfigError(
                     f"Provider '{self.name}' signs in with OAuth, but you are not "
-                    f"signed in. Run 'kadmon login {ref}', or set {var}."
+                    f"signed in. Run 'kadmon login {ref}'{extra}."
                 )
             return key
 
@@ -102,29 +103,36 @@ class ProviderConfig(BaseModel):
         return any(h in self.base_url for h in ("localhost", "127.0.0.1", "[::1]"))
 
 
-def stored_grok_grant():
-    """Return the stored Grok grant, or None.
+def stored_grant(name: str):
+    """Return the stored grant for `name`, or None.
 
     Reads the token store and nothing else. It never refreshes and never asks
     the network, so it is safe on any path that only needs to know whether a
     subscription session exists. The factory does the refresh.
     """
-    from kadmon.auth import xai
+    from kadmon.auth import AuthError, find_vendor
 
+    vendor = find_vendor(name)
+    if vendor is None:
+        return None
     try:
-        return xai.load_grant()
-    except xai.AuthError:
+        return vendor.load_grant()
+    except AuthError:
         # An unreadable store is not a live session. `login` reports the reason.
         return None
 
 
-def grok_provider_config(name: str = "grok") -> "ProviderConfig":
-    """The provider a live Grok grant implies when config.toml names none."""
+def provider_from_vendor(name: str) -> "ProviderConfig":
+    """The provider a live grant implies when config.toml names none."""
+    from kadmon.auth import get_vendor
+
+    vendor = get_vendor(name)
+    defaults = KIND_DEFAULTS.get(name, {})
     return ProviderConfig(
         name=name,
-        kind=KIND_GROK,
-        model=KIND_DEFAULTS[KIND_GROK]["model"],
-        auth="oauth:grok",
+        kind=name,
+        model=defaults.get("model") or "",
+        auth=f"oauth:{vendor.name}",
     )
 
 
@@ -142,12 +150,9 @@ class Settings(BaseModel):
         """Pick a provider by name, falling back to the configured default."""
         wanted = name or os.environ.get("KADMON_PROVIDER", "") or self.default
 
-        # A subscription session is enough to start from nothing. Synthesise the
-        # provider it implies when config.toml never named one.
-        no_grok_entry = not any(p.kind == KIND_GROK for p in self.providers.values())
-        asking_for_grok = not self.providers or wanted == KIND_GROK
-        if no_grok_entry and asking_for_grok and stored_grok_grant() is not None:
-            return grok_provider_config()
+        synthetic = self._from_subscription(wanted)
+        if synthetic is not None:
+            return synthetic
 
         if not self.providers:
             raise ConfigError("No providers configured. Run 'kadmon init' to set one up.")
@@ -166,6 +171,42 @@ class Settings(BaseModel):
             raise ConfigError(f"Unknown provider '{wanted}'. Configured: {known}.")
 
         return self.providers[wanted]
+
+    def _from_subscription(self, wanted: str) -> "ProviderConfig | None":
+        """Synthesise a provider from a stored grant when config names none."""
+        from kadmon.auth import find_vendor, vendor_names
+
+        configured = {p.kind for p in self.providers.values()}
+
+        def usable(name: str) -> bool:
+            if name in configured:
+                return False
+            vendor = find_vendor(name)
+            if vendor is None:
+                return False
+            return stored_grant(name) is not None
+
+        if wanted:
+            if wanted in self.providers:
+                return None
+            return provider_from_vendor(wanted) if usable(wanted) else None
+
+        if self.providers:
+            return None
+
+        signed_in = [n for n in vendor_names() if usable(n)]
+        tested = [n for n in signed_in if getattr(find_vendor(n), "tested", False)]
+        # Prefer a verified vendor so an experimental sign-in cannot take over
+        # a production Grok run when both grants exist and config.toml does not.
+        pool = tested or signed_in
+        if len(pool) == 1:
+            return provider_from_vendor(pool[0])
+        if len(pool) > 1:
+            raise ConfigError(
+                f"Several subscriptions signed in ({', '.join(pool)}). "
+                "Pass --provider or run 'kadmon init'."
+            )
+        return None
 
 
 def _read_credential(name: str) -> str:
@@ -238,11 +279,8 @@ def _build_providers(raw: dict) -> dict[str, ProviderConfig]:
                 f"Provider '{name}' has unknown kind '{kind}'. Use one of: {', '.join(KINDS)}."
             )
         auth = entry.get("auth", "")
-        if auth.startswith("oauth:") and kind != KIND_GROK:
-            raise ConfigError(
-                f"Provider '{name}' has auth = \"{auth}\", but kind '{kind}' has no "
-                "sign-in. Only 'grok' does. Use \"env:VAR_NAME\" or \"credentials:name\"."
-            )
+        if auth.startswith("oauth:"):
+            _check_oauth_record(name, kind, auth)
         if "api_key" in entry:
             raise ConfigError(
                 f"Provider '{name}' has an inline api_key. Keys belong in "
@@ -259,6 +297,23 @@ def _build_providers(raw: dict) -> dict[str, ProviderConfig]:
             aws_profile=entry.get("aws_profile", ""),
         )
     return providers
+
+
+def _check_oauth_record(name: str, kind: str, auth: str) -> None:
+    """`oauth:<vendor>` is a record. kind must be that vendor, and registered."""
+    from kadmon.auth import vendor_names
+
+    ref = auth.partition(":")[2]
+    if ref != kind:
+        raise ConfigError(
+            f"Provider '{name}' has auth = \"{auth}\", but kind '{kind}' is not "
+            f"'{ref}'. oauth: records a sign-in for that vendor only."
+        )
+    if kind not in vendor_names():
+        raise ConfigError(
+            f"Provider '{name}' has auth = \"{auth}\", but kind '{kind}' has no "
+            "sign-in. Use \"env:VAR_NAME\" or \"credentials:name\"."
+        )
 
 
 def load_settings(repo_path: str | Path = ".") -> Settings:

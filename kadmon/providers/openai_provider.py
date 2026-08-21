@@ -6,7 +6,14 @@ from collections.abc import Iterator
 
 import openai
 
-from kadmon.providers.base import LLMResponse, Message, StreamChunk, StreamEvent, TokenUsage, ToolCall
+from kadmon.providers.base import (
+    LLMResponse,
+    Message,
+    StreamChunk,
+    StreamEvent,
+    TokenUsage,
+    ToolCall,
+)
 
 _MAX_RETRIES = 3
 
@@ -216,6 +223,14 @@ class OpenAIProvider:
         }
 
     def _call_with_retry(self, kwargs: dict):
+        return self._create_with_backoff(kwargs)
+
+    def _create_with_backoff(self, kwargs: dict):
+        """POST once, retrying only transient transport errors.
+
+        Named apart from `_call_with_retry` so a subclass that refreshes a
+        token can wrap this without re-entering itself.
+        """
         for attempt in range(_MAX_RETRIES):
             try:
                 return self.client.chat.completions.create(**kwargs)
