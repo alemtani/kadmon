@@ -8,7 +8,6 @@ the SuperGrok pool. A live grant always wins — see `docs/subscription-auth.md`
 from kadmon.auth.store import Grant
 from kadmon.auth.vendor import Vendor
 from kadmon.providers.openai_provider import OpenAIProvider
-from kadmon.providers.subscription import GrantClient
 
 XAI_BASE_URL = "https://api.x.ai/v1"
 PROXY_BASE_URL = "https://cli-chat-proxy.grok.com/v1"
@@ -32,11 +31,12 @@ POOL_SPENT = (
 SESSION_ENDED = "Your xAI Grok session ended. Run 'kadmon login grok' to sign in again."
 
 
-class GrokProvider(GrantClient, OpenAIProvider):
+class GrokProvider(OpenAIProvider):
     """LLM provider using the xAI Grok API.
 
     Grok speaks the OpenAI chat-completions protocol, so this class reuses
-    OpenAIProvider. Pass `grant` to run on a subscription instead of a key.
+    OpenAIProvider (and GrantClient through it). Pass `grant` to run on a
+    subscription instead of a key.
     """
 
     def __init__(
@@ -48,16 +48,14 @@ class GrokProvider(GrantClient, OpenAIProvider):
         grant: Grant | None = None,
         vendor: Vendor | None = None,
     ) -> None:
-        self.grant = grant
-        self.vendor = vendor
         if grant is not None:
             # A grant sent to api.x.ai bills the console meter. Pin the proxy.
             api_key = grant.access_token
             base_url = PROXY_BASE_URL
-            if self.vendor is None:
+            if vendor is None:
                 from kadmon.auth import find_vendor
 
-                self.vendor = find_vendor("grok")
+                vendor = find_vendor("grok")
 
         super().__init__(
             model=model,
@@ -65,4 +63,6 @@ class GrokProvider(GrantClient, OpenAIProvider):
             max_tokens=max_tokens,
             base_url=base_url or XAI_BASE_URL,
             default_headers=CLI_HEADERS if grant is not None else None,
+            grant=grant,
+            vendor=vendor,
         )

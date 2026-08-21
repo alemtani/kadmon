@@ -6,6 +6,8 @@ from collections.abc import Iterator
 
 import openai
 
+from kadmon.auth.store import Grant
+from kadmon.auth.vendor import Vendor
 from kadmon.providers.base import (
     LLMResponse,
     Message,
@@ -14,12 +16,17 @@ from kadmon.providers.base import (
     TokenUsage,
     ToolCall,
 )
+from kadmon.providers.subscription import GrantClient
 
 _MAX_RETRIES = 3
 
 
-class OpenAIProvider:
-    """LLM provider using OpenAI API (GPT-4o, o1, etc.)."""
+class OpenAIProvider(GrantClient):
+    """LLM provider using OpenAI API (GPT-4o, o1, etc.).
+
+    OpenAI-compatible hosts inherit 401 refresh and pool-spent stop from
+    `GrantClient`. Pass `grant` only when this kind has a live session.
+    """
 
     def __init__(
         self,
@@ -28,6 +35,8 @@ class OpenAIProvider:
         max_tokens: int = 8192,
         base_url: str = "",
         default_headers: dict[str, str] | None = None,
+        grant: Grant | None = None,
+        vendor: Vendor | None = None,
     ) -> None:
         """Create an OpenAI-compatible client.
 
@@ -35,6 +44,10 @@ class OpenAIProvider:
         `default_headers` carries client identity. Keep credentials out of it —
         `api_key` already becomes the one auth header.
         """
+        self.grant = grant
+        self.vendor = vendor
+        if grant is not None:
+            api_key = grant.access_token
         self.model = model
         self.max_tokens = max_tokens
         self.base_url = base_url
@@ -75,8 +88,8 @@ class OpenAIProvider:
         if tools:
             kwargs["tools"] = [self._convert_tool(t) for t in tools]
 
-        # Through _call_with_retry, not the client directly: a subclass that
-        # refreshes a token or stops on a spent pool must see this call too.
+        # Through _call_with_retry, not the client directly: GrantClient
+        # refreshes a token or stops on a spent pool on this path too.
         response_stream = self._call_with_retry(kwargs)
         yield from self._process_stream(response_stream)
 
@@ -222,14 +235,11 @@ class OpenAIProvider:
             },
         }
 
-    def _call_with_retry(self, kwargs: dict):
-        return self._create_with_backoff(kwargs)
-
     def _create_with_backoff(self, kwargs: dict):
         """POST once, retrying only transient transport errors.
 
-        Named apart from `_call_with_retry` so a subclass that refreshes a
-        token can wrap this without re-entering itself.
+        GrantClient wraps this twice on a 401. Do not call `_call_with_retry`
+        from here.
         """
         for attempt in range(_MAX_RETRIES):
             try:

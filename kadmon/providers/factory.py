@@ -20,9 +20,9 @@ from kadmon.config import (
     ProviderConfig,
 )
 
-# Kinds whose provider can send a grant. Completions hosts stay per provider —
-# a Codex grant must not hit the SuperGrok proxy, and vice versa.
-_GRANT_KINDS = frozenset({KIND_GROK})
+# Kinds whose LLM class accepts a grant (GrantClient). Hosts stay per provider
+# — a Codex grant must not hit the SuperGrok proxy, and vice versa.
+_GRANT_KINDS = frozenset({KIND_GROK, KIND_OPENAI})
 
 
 def build_provider(config: ProviderConfig, max_tokens: int = 8192, api_key: str = ""):
@@ -116,6 +116,8 @@ def _build_llm(
             api_key=api_key,
             max_tokens=max_tokens,
             base_url=config.base_url,
+            grant=grant,
+            vendor=vendor,
         )
 
     raise ValueError(f"Unsupported provider kind: {config.kind}")

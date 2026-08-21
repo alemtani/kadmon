@@ -98,15 +98,16 @@ def _aws_candidate() -> Candidate:
 def discover() -> list[Candidate]:
     """List every provider kadmon could configure, available or not.
 
-    Order is usage popularity, then Bedrock. Registered vendors whose kind is
-    already a provider appear in that slot; extra vendor names that are also
-    known kinds are appended before Bedrock.
+    Order is usage popularity, then Bedrock. Key-based kinds go through
+    `_kind_candidate`, which falls through to the env var when no vendor is
+    registered. Extra vendor names that are also known kinds are appended
+    before Bedrock.
     """
     listed = [
-        _env_candidate("anthropic", KIND_ANTHROPIC, "Anthropic"),
-        _env_candidate("openai", KIND_OPENAI, "OpenAI"),
+        _kind_candidate("anthropic", KIND_ANTHROPIC, "Anthropic"),
+        _kind_candidate("openai", KIND_OPENAI, "OpenAI"),
         _kind_candidate("grok", KIND_GROK, "xAI Grok"),
-        _env_candidate("gemini", KIND_GEMINI, "Google Gemini"),
+        _kind_candidate("gemini", KIND_GEMINI, "Google Gemini"),
         _aws_candidate(),
     ]
     return _append_extra_vendors(listed)

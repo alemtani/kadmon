@@ -92,17 +92,35 @@ Rules:
 
 ## Adding a New Provider
 
-1. Create `kadmon/providers/your_provider.py` implementing `LLMProvider` protocol
-2. Handle message format conversion (internal ↔ provider-specific)
-3. Add retry logic for transient errors
-4. Register in provider factory
-5. Add tests with mocked API responses
+A **provider** is LLM transport. **OAuth** is a separate job: a `Vendor` in
+`kadmon/auth/`. Full walkthrough: `docs/adding-a-provider.md`.
+
+API-key provider:
+
+1. Create `kadmon/providers/<name>.py` implementing `LLMProvider` (prefer
+   subclassing `OpenAIProvider` when the host is OpenAI-compatible)
+2. Add `KIND_*` and `KIND_DEFAULTS` in `kadmon/config.py`
+3. Register in `kadmon/providers/factory.py`
+4. Add the kind to `discover()` if it should appear in `kadmon init`
+5. Tests with mocked API responses
+
+Subscription OAuth for an existing kind (`Vendor.name` must equal `kind`):
+
+1. Subclass `Vendor` in `kadmon/auth/<name>.py`. Implement `login`. Override
+   `refresh_grant` and `pool_spent_message` only when that vendor has them.
+2. Set `tested = False` until a real signed-in 200. Login prints one warning.
+3. Call `register(YourVendor())` in `kadmon/auth/__init__.py`
+
+Do not copy `xai.py` unless the vendor is the same RFC 8628 device-code shape.
+Claude is a local CLI, not this path. Bedrock/OpenRouter are gateways, not
+`kadmon login` vendors.
 
 ## File Structure
 
 ```
 kadmon/
 ├── agent/       # Core loop, context management, planning
+├── auth/        # Subscription sign-in (one Vendor module per vendor)
 ├── providers/   # LLM provider implementations
 ├── tools/       # Agent tools (file I/O, search, shell, etc.)
 ├── eval/        # SWE-bench evaluation harness

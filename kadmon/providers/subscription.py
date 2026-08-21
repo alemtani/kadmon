@@ -21,10 +21,10 @@ class PoolExhausted(Exception):
 
 
 class GrantClient:
-    """Mixin: 401 refreshes once, vendor pool-spent stops the run.
+    """401 refreshes once; vendor pool-spent stops the run.
 
-    Requires `_create_with_backoff` from OpenAIProvider. Overrides
-    `_call_with_retry` so the child never re-enters itself.
+    `OpenAIProvider` inherits this. `_call_with_retry` wraps
+    `_create_with_backoff` twice and then stops — it never calls itself.
     """
 
     vendor: Vendor | None = None

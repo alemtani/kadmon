@@ -1,8 +1,9 @@
 """Vendor registry. `kadmon login <name>` dispatches through this.
 
-To add a vendor:
+To add a vendor: see `docs/adding-a-provider.md`. Short form:
 
-1. Subclass `Vendor` in `kadmon/auth/<name>.py`.
+1. Subclass `Vendor` in `kadmon/auth/<name>.py`. `name` must equal the
+   provider kind.
 2. Set `tested = False` until the live endpoints are verified. Login then
    prints one experimental-path line.
 3. Call `register(YourVendor())` from `kadmon/auth/__init__.py`.

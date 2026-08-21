@@ -401,6 +401,32 @@ def test_factory_reads_grant_through_the_vendor_registry(config_home, signed_in,
     assert str(provider.client.base_url).startswith(PROXY_BASE_URL)
 
 
+def test_openai_kind_accepts_a_registered_vendor_grant(config_home):
+    """OAuth on an existing OpenAI-compatible kind must not hit the Grok proxy."""
+    from collections.abc import Callable
+
+    from kadmon.auth import Grant, LoginPrompt, Vendor, register, unregister
+    from kadmon.providers.openai_provider import OpenAIProvider
+
+    class Codex(Vendor):
+        name = "openai"
+        display_name = "Codex"
+        tested = False
+
+        def login(self, show: Callable[[LoginPrompt], None]) -> Grant:
+            raise AssertionError("must not login")
+
+    register(Codex())
+    try:
+        Codex().save_grant(Grant("codex-token", account="c@example.com"))
+        provider = build_provider(ProviderConfig(name="openai", kind="openai", model="gpt-4o"))
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.client.api_key == "codex-token"
+        assert "grok.com" not in str(provider.client.base_url)
+    finally:
+        unregister("openai")
+
+
 def test_untested_vendor_does_not_take_over_grok(config_home, signed_in):
     """An experimental vendor's grant must not drive a Grok run."""
     from collections.abc import Callable

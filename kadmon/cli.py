@@ -818,13 +818,12 @@ def init(local):
         if not c.available:
             # Sign-in first when this kind has a vendor. A key is the fallback.
             config = _offer_signin(config)
-
-        if not c.available and c.auth.startswith("env:") and not config.auth.startswith("oauth:"):
-            key = click.prompt("  API key", hide_input=True, default="", show_default=False)
-            if key:
-                write_credential(c.name, key)
-                config = config.model_copy(update={"auth": f"credentials:{c.name}"})
-                click.echo(f"  Key stored in {CREDENTIALS_PATH}")
+            if c.auth.startswith("env:") and not config.auth.startswith("oauth:"):
+                key = click.prompt("  API key", hide_input=True, default="", show_default=False)
+                if key:
+                    write_credential(c.name, key)
+                    config = config.model_copy(update={"auth": f"credentials:{c.name}"})
+                    click.echo(f"  Key stored in {CREDENTIALS_PATH}")
         configs.append(config)
 
     click.echo("\nTesting connections...")

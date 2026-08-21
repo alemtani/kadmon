@@ -389,30 +389,33 @@ fake the token endpoint and the proxy. Names map to the rows above.
 
 ## Adding a vendor
 
-The OAuth dance is per vendor. The store and `kadmon login` dispatch are shared.
+Walkthrough: `docs/adding-a-provider.md`. Provider transport and OAuth are
+separate jobs. Short form for OAuth on an existing kind:
 
-1. Subclass `kadmon.auth.Vendor` in `kadmon/auth/<name>.py`. Implement
-   `login`. Override `refresh_grant` if the vendor refreshes tokens. Override
-   `pool_spent_message` if the completions host has a spent-pool status.
+1. Subclass `kadmon.auth.Vendor` in `kadmon/auth/<name>.py`. `name` must equal
+   the provider `kind`. Implement `login`. Override `refresh_grant` if the
+   vendor refreshes tokens. Override `pool_spent_message` if you have pinned
+   that host's spent-pool status.
 2. Set `tested = False` until the live endpoints are verified. Login then
    prints one experimental-path line. OpenAI, Codex, and anything else we have
    not run against a real account stay in this state.
 3. Call `register(YourVendor())` in `kadmon/auth/__init__.py`.
-4. Add the completions transport on the provider (host, headers). Do not
-   reuse SuperGrok's proxy or CLI-identity headers. Factory grant lookup is
-   already by kind.
 
 Do not copy `xai.py` and swap URLs unless the vendor is RFC 8628 device-code
 with the same field names. Claude is a local CLI, not this class of flow.
+Bedrock and OpenRouter are gateways, not `kadmon login` vendors.
 
-Wiring reads a live grant with `kadmon.auth.live(kind)`, not
-`kadmon.auth.xai.live_grant`. A second vendor is then a new module plus a
-table name plus provider transport.
+A run reads the grant with `kadmon.auth.live(kind)`, not
+`kadmon.auth.xai.live_grant`. Completions host and identity headers stay on
+the provider — do not reuse SuperGrok's proxy. Discovery already uses
+`_kind_candidate`, which falls through to the env var when no vendor is
+registered.
 
 ## Pointers
 
 | What | Where |
 | --- | --- |
+| How to add a provider or OAuth | `docs/adding-a-provider.md` |
 | Code to extend | `kadmon/auth/`, `kadmon/config.py`, `kadmon/providers/factory.py`, `kadmon/providers/grok.py`, `kadmon/providers/discovery.py`, `kadmon/providers/openai_provider.py`, `kadmon/cli.py` |
 
 Implement Grok login from current `main` on this fork (`alemtani/kadmon`), on a
