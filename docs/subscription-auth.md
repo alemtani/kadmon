@@ -2,11 +2,7 @@
 
 Kadmon uses the subscriptions you already pay for. An API key is a fallback.
 
-This is the product and sequencing brief. Grok wire-level detail lives in
-[`docs/design/p1/provider-oauth.md`](design/p1/provider-oauth.md). Do not copy
-it here.
-
-OAuth and subscription auth are a separate context from evals.
+This is the spec of record for sign-in. OAuth and evals are separate contexts.
 
 ## Problem
 
@@ -46,7 +42,7 @@ A live subscription always wins over a key.
 
 | Vendor | What we do | What we will not do | Status |
 | --- | --- | --- | --- |
-| **xAI Grok** (SuperGrok / X Premium+) | Device-code sign-in. Usage draws from the SuperGrok weekly pool. File-only tokens. Public Grok CLI client id. | Scrape grok.com cookies. Register a Kadmon-only OAuth client (xAI has no public registration). Browser PKCE in this pass. | **v1.** Design is ready. Implement first. Spec: [`docs/design/p1/provider-oauth.md`](design/p1/provider-oauth.md). |
+| **xAI Grok** (SuperGrok / X Premium+) | Device-code sign-in. Usage draws from the SuperGrok weekly pool. File-only tokens (`~/.config/kadmon/tokens.toml`, mode 0600). Public Grok CLI client id `b1a00492-073a-47ea-816f-4c329264a828`. OAuth calls go to `cli-chat-proxy.grok.com/v1` with CLI-identity headers, not `api.x.ai/v1`. | Scrape grok.com cookies. Register a Kadmon-only OAuth client. Browser PKCE in this pass. | **v1.** Implement first, from current `main`. |
 | **Anthropic Claude** (Pro / Max) | Detect the official `claude` CLI on this machine when it is logged in. Use it as a local subprocess for implementer or reviewer. Kadmon stays the agent (classifies, plans, routes). The CLI is model transport. | Copy `sk-ant-oat*` into Kadmon's HTTP client. Relay a token to a server. Log in as Claude for other people. Copy Grok device-code onto Anthropic. Call that path "OAuth." | **Later.** Blocked for native OAuth: Anthropic does not give third-party agents claude.ai OAuth for the Messages API. Subscription tokens used outside Claude Code have been rejected (Jan 2026+). Pro/Max is for the user's own individual use. |
 | **Kimi** | Treat a membership coding-plan credential or a logged-in Kimi Code CLI as the subscription. | Pretend a quota key is OAuth if it is not. | **Later.** |
 | **OpenAI** (ChatGPT Plus / Pro) | If an official CLI is installed and logged in, use it. If not, `kadmon init` says so in one line. | Fake "Sign in with ChatGPT" that still needs a console key. Send a consumer-sub token to the developer API. | **Blocked by vendor** for native third-party API. Official CLI is later, if it exists and is logged in. |
@@ -58,8 +54,8 @@ Do not wait for a shared OAuth layer. The vendors do not offer the same door.
 
 1. **Grok OAuth.** This is what blocks you from testing Kadmon at all. xAI
    supports device-code OAuth for third-party CLIs. SuperGrok pool. v1 is this
-   path only. Implement against the Grok spec. Do not re-open product decisions
-   1–5 in that file (xAI-only, device-code, file-only tokens, public client id).
+   path only. Do not re-open: xAI-only, device-code, file-only tokens, public
+   client id.
 2. **Claude-via-CLI.** Different mechanism. Not a copy-paste of Grok
    device-code. Not `kadmon/auth/xai.py` with a new issuer. Anthropic does not
    give Kadmon a Messages-API OAuth grant. The supported path is: `claude` is
@@ -67,9 +63,8 @@ Do not wait for a shared OAuth layer. The vendors do not offer the same door.
 3. **Kimi.** After Claude. Decide then whether the credential is a coding-plan
    key, a CLI, or both. Do not design it as Grok OAuth.
 
-Signed-in Grok traffic uses xAI's CLI proxy, not the console API host. The
-Grok spec pins the host and headers. Read that file before touching
-`GrokProvider`.
+Signed-in Grok traffic uses xAI's CLI proxy (`cli-chat-proxy.grok.com/v1`),
+not the console API host. Read `kadmon/providers/grok.py` before changing it.
 
 Claude-via-CLI does not put an Anthropic token into `AnthropicProvider`. If
 that provider still needs `ANTHROPIC_API_KEY`, the Claude subscription path is
@@ -91,11 +86,10 @@ a later way to assign implementer vs reviewer. Today one run binds one
 **U2.** If the subscription pool is exhausted, Kadmon stops or asks in one
 line. It does not silently fall through to a pay-per-token key.
 
-For Grok, the spec already maps well-formed 402/426 to the weekly-pool
-message and forbids a key switch on that path. Keep that. A dead grant or a
+For Grok, a well-formed 402/426 is weekly-pool exhaustion: stop or ask in
+one line. Do not silently switch to a key. A dead grant or a
 403-not-entitled at the **start** of a run may still offer a key, with a
-visible notice, as that spec already decided. Do not reopen those rows. Do
-not treat pool exhaustion as a dead grant.
+visible notice. Do not treat pool exhaustion as a dead grant.
 
 Claude-via-CLI and Kimi must follow U2 as well. A Claude usage cap must not
 silently move the call onto `ANTHROPIC_API_KEY`.
@@ -104,28 +98,18 @@ silently move the call onto `ANTHROPIC_API_KEY`.
 
 | What | Where |
 | --- | --- |
-| Grok implementation spec (wire, errors, adapter, tests) | [`docs/design/p1/provider-oauth.md`](design/p1/provider-oauth.md) |
-| Grok implementer handoff | [`docs/handoffs/latest.md`](handoffs/latest.md) |
 | Code to extend | `kadmon/config.py`, `kadmon/providers/factory.py`, `kadmon/providers/grok.py`, `kadmon/cli.py` |
 
-**Branch fact, 2026-08-20.** PR
-[#2](https://github.com/ayuan153/kadmon/pull/2) (`feat/multi-provider`) merged
-to `main` as `4aeebf1`. GitHub deleted the remote branch. This checkout is
-`main`. `main` already has `ProviderConfig`, `resolve_key()`, `factory.py`, and
-`GrokProvider`. The Grok spec's 2026-08-19 note that `main` lacks those files
-is stale. Implement Grok login from current `main`, on a new branch. A local
-`feat/multi-provider` ref may still sit at `a47bb81`; do not treat it as the
-parent.
-
-OAuth has not shipped. There is no `kadmon login`. There is no
-`kadmon/auth/`. Auth is still `env:VAR` or `credentials:name` only.
+Implement Grok login from current `main` on this fork (`alemtani/kadmon`), on a
+new branch. PR #2 already merged `GrokProvider` and the factory. There is no
+`kadmon login`. There is no `kadmon/auth/`. Auth is still `env:VAR` or
+`credentials:name` only.
 
 ## Open questions
 
 Settled for Grok v1 — do not re-open: xAI-only, device-code, file-only
 `~/.config/kadmon/tokens.toml` mode 0600, public client id
-`b1a00492-073a-47ea-816f-4c329264a828`. See the Grok spec, "Open questions —
-resolved 2026-08-19."
+`b1a00492-073a-47ea-816f-4c329264a828`, OAuth host `cli-chat-proxy.grok.com/v1`.
 
 Still open (none of these block Grok v1):
 
@@ -141,29 +125,13 @@ Still open (none of these block Grok v1):
 4. **Kimi credential shape.** Coding-plan key, Kimi Code CLI, or both. Decide
    when Kimi is next.
 
-## First actions (Grok login, next session)
+## First actions (Grok login)
 
-Do not re-read the success-criteria thread. This list is enough to start.
-
-1. Create a new branch from current `main`. PR #2 is already merged. Do not
-   start from `origin/feat/multi-provider`.
-2. Read [`docs/design/p1/provider-oauth.md`](design/p1/provider-oauth.md) end
-   to end. Code against "The credential contract", "The OAuth runtime",
-   "Error states", "Auth precedence", and "Standalone login". Product
-   decisions 1–5 stay closed.
-3. Use **two** mechanisms, not one. `_committed` (run-scoped) gates key
-   fallback. `already_yielded` (call-scoped) gates retry. A later
-   `complete()` 401 in a healthy run can retry. A `stream()` 401 after a
-   yielded chunk cannot. The handoff's "one `_committed` flag" sentence is
-   stale. The design doc wins.
-4. Add `kadmon/auth/xai.py` (`device_login`, `load_tokens`, `refresh_tokens`,
-   `save_tokens`, `clear_tokens`). Rename `resolve_key()` to
-   `resolve_credentials()`; OAuth lookup is grok-only. Add `headers` on
-   `OpenAIProvider` and `GrokProvider`. Wrap live OAuth only in
-   `XAIRefreshAdapter` inside `factory.py`. Add `kadmon login grok` and
-   `kadmon logout grok`. Init's grok branch calls `load_tokens()` /
-   `refresh_tokens()` directly, never `resolve_credentials()`.
-5. Lint the files you touch (`ruff check kadmon/ tests/`). Cover the 34 cases
-   under "Testing these from an intuitive standpoint" in the Grok spec.
-   Conventional commit, e.g. `feat(providers): sign in to SuperGrok with
-   device-code OAuth`.
+1. Branch from `main` on `alemtani/kadmon`. Open a PR. Do not commit to `main`.
+2. Add `kadmon login grok` / `kadmon logout grok` (device-code). Store tokens
+   in `~/.config/kadmon/tokens.toml` mode 0600. Init offers sign-in first.
+3. OAuth traffic uses `cli-chat-proxy.grok.com/v1` and CLI-identity headers.
+   Key traffic still uses `api.x.ai/v1`.
+4. Pool exhausted (402/426): one-line stop or ask. No silent key fallback.
+5. Lint files you touch. Add tests. Conventional commit, e.g.
+   `feat(providers): sign in to SuperGrok with device-code OAuth`.
