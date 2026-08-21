@@ -1,29 +1,20 @@
 # Kadmon
 
-**YOLO mode you can trust.** An autonomous coding agent that manages its own context, asks the right questions, and proves its work.
+**A teammate coding agent.** You give it a Task or a Project. It asks when direction is unclear, proves the work, and uses the subscription you already pay for.
 
 ## Why Kadmon exists
 
-Current AI coding agents get context management wrong. They run until the context window fills up, then try to recover with compaction — lossy summarization that throws away critical information mid-task. Human-in-the-loop checks are aimed at the wrong level: agents ask for permission on mechanics (file edits, shell commands) when what they should be probing for is *directional* feedback.
+Agents that only go fast guess on direction and forget on long work. Agents that only go safe ask permission to edit a file. Kadmon is the teammate in between: autonomous on mechanics, explicit on direction, and "done" only when the repo's checks pass.
 
-Kadmon is built on a different philosophy:
-
-- **Minimize token usage from the start.** Delegate specialized subtasks to focused subagents with scoped context instead of stuffing everything into one session. Use persistent memory across sessions, not just within them.
-- **Hand off context gracefully.** As a session grows, Kadmon plans handoff points — packaging completed work, decisions made, and open questions into a clean context for the next phase. No lossy compaction.
-- **Go fast on mechanics, go slow on direction.** Kadmon doesn't ask "can I edit this file?" It asks "we could approach this as a refactor or a rewrite — here's the tradeoff, which direction do you want?" Agents should automate execution and surface strategic decisions.
+A **Task** comes back as a PR. A **Project** stops for a design YES/NO, then those PRs. It writes skills that fire the next time on this repo.
 
 ## Vision & Roadmap
 
-Where Kadmon is going and how it gets there:
-
-- **[VISION.md](VISION.md)** — the north star: reach state-of-the-art parity, then win on
-  context management, confidence-gated autonomy, and verification-first trust.
-- **[ROADMAP.md](ROADMAP.md)** — the execution path, organized by capability horizons (parity and
-  wedge tracks). No date estimates — sequencing, not calendars.
-- **[docs/design/competitive-analysis.md](docs/design/competitive-analysis.md)** — the SOTA
-  landscape Kadmon is positioned against.
-- **[docs/design/differentiators.md](docs/design/differentiators.md)** — the three differentiators
-  grounded in actual components, with measurable success criteria.
+- **[VISION.md](VISION.md)** — north star (v2, August 2026).
+- **[docs/success-criteria.md](docs/success-criteria.md)** — how we score it (workplace + public comparison).
+- **[docs/subscription-auth.md](docs/subscription-auth.md)** — sign in with the subscription you already pay for.
+- **[ROADMAP.md](ROADMAP.md)** — shipped work and known gaps. Order of unshipped work is not decided.
+- **[docs/design/competitive-analysis.md](docs/design/competitive-analysis.md)** — landscape (historical; some cockpit gaps listed there have since shipped).
 
 ## Install
 
