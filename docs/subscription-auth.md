@@ -50,7 +50,8 @@ A live subscription always wins over a key.
 
 ## Sequencing
 
-Do not wait for a shared OAuth layer. The vendors do not offer the same door.
+Vendors do not share an OAuth dance. They share the token store, `Grant`,
+`AuthError`, and the `Vendor` registry so `kadmon login <name>` dispatches.
 
 1. **Grok OAuth.** This is what blocks you from testing Kadmon at all. xAI
    supports device-code OAuth for third-party CLIs. SuperGrok pool. v1 is this
@@ -218,11 +219,14 @@ Storing them is not enough. Kadmon must keep them alive.
 - **On write.** Write to a temp file in the same directory, then `os.replace`.
   Re-apply mode 0600 after every write. Two Kadmon runs must not corrupt the
   store.
-- **On refresh failure.** This is a dead grant, not pool exhaustion. Clear the
-  grant from the store. U2 lets a dead grant offer a key at the start of a
-  run. An expired-but-refreshable token is neither. Never let it read as one.
+- **On refresh failure.** A rejected refresh token (`invalid_grant` and
+  similar) is a dead grant. Clear it. A network or HTTP blip (5xx, 429,
+  timeout) is not. Leave the grant in the store and raise. U2 lets a dead
+  grant offer a key at the start of a run. An expired-but-refreshable token
+  is neither. Never let it read as one.
 
-`tokens.toml` schema, frozen:
+`tokens.toml` schema, frozen. One table per vendor. Extra keys on a table
+round-trip, so a Grok write cannot strip another vendor's fields.
 
 ```toml
 [grok]
@@ -362,11 +366,29 @@ fake the token endpoint and the proxy. Names map to the rows above.
 17. `stream_path_refreshes_and_stops` — drives `stream()`, not `complete()`.
    Covers refresh-once, 401-retry-once, and the pool-exhaustion stop.
 
+## Adding a vendor
+
+The OAuth dance is per vendor. The store and `kadmon login` dispatch are shared.
+
+1. Subclass `kadmon.auth.Vendor` in `kadmon/auth/<name>.py`. Implement
+   `login`. Override `refresh_grant` if the vendor refreshes tokens.
+2. Set `tested = False` until the live endpoints are verified. Login then
+   prints one experimental-path line. OpenAI, Codex, and anything else we have
+   not run against a real account stay in this state.
+3. Call `register(YourVendor())` in `kadmon/auth/__init__.py`.
+
+Do not copy `xai.py` and swap URLs unless the vendor is RFC 8628 device-code
+with the same field names. Claude is a local CLI, not this class of flow.
+
+PR 2 reads a live grant with `kadmon.auth.live("grok")`, not
+`kadmon.auth.xai.live_grant`. A second vendor is then a new module plus a
+table name.
+
 ## Pointers
 
 | What | Where |
 | --- | --- |
-| Code to extend | `kadmon/config.py`, `kadmon/providers/factory.py`, `kadmon/providers/grok.py`, `kadmon/providers/discovery.py`, `kadmon/providers/openai_provider.py`, `kadmon/cli.py` |
+| Code to extend | `kadmon/auth/`, `kadmon/config.py`, `kadmon/providers/factory.py`, `kadmon/providers/grok.py`, `kadmon/providers/discovery.py`, `kadmon/providers/openai_provider.py`, `kadmon/cli.py` |
 
 Implement Grok login from current `main` on this fork (`alemtani/kadmon`), on a
 new branch. PR #2 already merged `GrokProvider` and the factory. There is no
@@ -411,7 +433,8 @@ Two PRs. The first is testable on its own.
 2. Spike first: pin the device-code URL, token URL, scope, token-request
    headers, CLI-identity headers, and the pool-exhaustion status code. Record
    them in this doc. **Done** — see "Spike results".
-3. Add `kadmon/auth/xai.py`: device-code flow, token store, refresh.
+3. Add `kadmon/auth/`: vendor-keyed store, `Vendor` registry, Grok
+   device-code in `xai.py`.
 4. Store tokens in `~/.config/kadmon/tokens.toml` mode 0600, schema above.
    Atomic write via temp file plus `os.replace`, re-chmod every write.
 5. Add `kadmon login grok` and `kadmon logout grok`. Login on an existing

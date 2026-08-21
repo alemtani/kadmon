@@ -3,25 +3,21 @@
 Kadmon signs in with the public Grok CLI client. Usage then draws from the
 SuperGrok pool instead of a pay-per-token console key.
 
-Tokens live in `~/.config/kadmon/tokens.toml`, mode 0600. They never go into
-`config.toml` and never leave this machine.
-
 The endpoints below come from xAI's OIDC discovery document at
 `https://auth.x.ai/.well-known/openid-configuration`. See
 `docs/subscription-auth.md` for the spike that pinned them.
 """
 
+from __future__ import annotations
+
 import base64
 import json
-import os
 import time
-import tomllib
-import urllib.error
-import urllib.parse
-import urllib.request
-from dataclasses import dataclass
+from collections.abc import Callable
 
-from kadmon.config import GLOBAL_CONFIG_DIR, _toml_str
+from kadmon.auth.oauth import DeviceCode, OAuthError, is_dead_grant, post_form
+from kadmon.auth.store import AuthError, Grant, clear, load, save
+from kadmon.auth.vendor import LoginPrompt, Vendor
 
 ISSUER = "https://auth.x.ai"
 DEVICE_CODE_URL = f"{ISSUER}/oauth2/device/code"
@@ -39,137 +35,24 @@ SCOPE = (
 
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
-TOKENS_PATH = GLOBAL_CONFIG_DIR / "tokens.toml"
+VENDOR = "grok"
 
-# Refresh this many seconds before the access token expires.
-REFRESH_WINDOW = 60
-
-_FORM_HEADERS = {
-    "content-type": "application/x-www-form-urlencoded",
-    "accept": "application/json",
-}
-
-
-class AuthError(Exception):
-    """Sign-in failed. The message tells the user what to do next."""
-
-
-@dataclass
-class Grant:
-    """One live subscription session."""
-
-    access_token: str
-    refresh_token: str = ""
-    expires_at: int = 0
-    account: str = ""
-
-    def expires_within(self, seconds: int, now: float | None = None) -> bool:
-        """True when the access token is about to expire, or already has."""
-        if not self.expires_at:
-            return False
-        return self.expires_at - (now if now is not None else time.time()) <= seconds
-
-
-@dataclass
-class DeviceCode:
-    """What the device-code endpoint hands back so the user can approve."""
-
-    device_code: str
-    user_code: str
-    verification_uri: str
-    verification_uri_complete: str = ""
-    expires_in: int = 600
-    interval: int = 5
-
-    @property
-    def url(self) -> str:
-        """The URL to show. The complete form carries the code already."""
-        return self.verification_uri_complete or self.verification_uri
-
-
-# --- token store ---
+_OAuthError = OAuthError
 
 
 def load_grant() -> Grant | None:
     """Read the stored Grok grant. Returns None when there is none."""
-    if not TOKENS_PATH.exists():
-        return None
-    try:
-        data = tomllib.loads(TOKENS_PATH.read_text())
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise AuthError(
-            f"Cannot read {TOKENS_PATH}: {exc}. Delete it and run 'kadmon login grok'."
-        ) from exc
-
-    entry = data.get("grok")
-    if not isinstance(entry, dict) or not entry.get("access_token"):
-        return None
-    return Grant(
-        access_token=str(entry.get("access_token", "")),
-        refresh_token=str(entry.get("refresh_token", "")),
-        expires_at=int(entry.get("expires_at", 0) or 0),
-        account=str(entry.get("account", "")),
-    )
+    return load(VENDOR)
 
 
 def save_grant(grant: Grant) -> None:
-    """Store the Grok grant, readable only by this user.
-
-    Writes a temp file in the same directory and renames it over the target, so
-    two Kadmon runs cannot leave a half-written store behind.
-    """
-    data = _read_store()
-    data["grok"] = {
-        "access_token": grant.access_token,
-        "refresh_token": grant.refresh_token,
-        "expires_at": grant.expires_at,
-        "account": grant.account,
-    }
-    _write_store(data)
+    """Store the Grok grant, readable only by this user."""
+    save(VENDOR, grant)
 
 
 def clear_grant() -> None:
     """Drop the Grok grant. Leaves any other vendor's entry alone."""
-    data = _read_store()
-    if data.pop("grok", None) is None:
-        return
-    _write_store(data)
-
-
-def _read_store() -> dict:
-    if not TOKENS_PATH.exists():
-        return {}
-    try:
-        return tomllib.loads(TOKENS_PATH.read_text())
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise AuthError(
-            f"Cannot read {TOKENS_PATH}: {exc}. Delete it and run 'kadmon login grok'."
-        ) from exc
-
-
-def _write_store(data: dict) -> None:
-    lines = ["# Kadmon subscription tokens — keep private", ""]
-    for vendor, entry in data.items():
-        if not isinstance(entry, dict):
-            continue
-        lines.append(f"[{vendor}]")
-        lines.append(f"access_token = {_toml_str(str(entry.get('access_token', '')))}")
-        lines.append(f"refresh_token = {_toml_str(str(entry.get('refresh_token', '')))}")
-        lines.append(f"expires_at = {int(entry.get('expires_at', 0) or 0)}")
-        lines.append(f"account = {_toml_str(str(entry.get('account', '')))}")
-        lines.append("")
-
-    TOKENS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temp = TOKENS_PATH.with_name(f"{TOKENS_PATH.name}.{os.getpid()}.tmp")
-    temp.write_text("\n".join(lines))
-    temp.chmod(0o600)
-    os.replace(temp, TOKENS_PATH)
-    # `os.replace` keeps the temp file's mode, but re-apply it so a store that
-    # existed with looser permissions cannot survive a write.
-    TOKENS_PATH.chmod(0o600)
-
-
-# --- device-code flow ---
+    clear(VENDOR)
 
 
 def request_device_code() -> DeviceCode:
@@ -188,16 +71,22 @@ def request_device_code() -> DeviceCode:
         raise AuthError(f"xAI returned no {exc.args[0]}. Try 'kadmon login grok' again.") from exc
 
 
-def poll_for_grant(device: DeviceCode, sleep=time.sleep, now=time.time) -> Grant:
+def poll_for_grant(
+    device: DeviceCode,
+    sleep: Callable[[float], None] | None = None,
+    now: Callable[[], float] | None = None,
+) -> Grant:
     """Wait for the user to approve the code, then return the grant.
 
     Blocks until xAI answers, the code expires, or the user denies it.
     """
+    pause = time.sleep if sleep is None else sleep
+    clock = time.time if now is None else now
     interval = max(device.interval, 1)
-    deadline = now() + device.expires_in
+    deadline = clock() + device.expires_in
 
-    while now() < deadline:
-        sleep(interval)
+    while clock() < deadline:
+        pause(interval)
         try:
             payload = _post_form(
                 TOKEN_URL,
@@ -208,30 +97,31 @@ def poll_for_grant(device: DeviceCode, sleep=time.sleep, now=time.time) -> Grant
                 },
             )
         except _OAuthError as exc:
-            if exc.code == "authorization_pending":
-                continue
-            if exc.code == "slow_down":
-                interval += 5
-                continue
-            if exc.code == "access_denied":
-                raise AuthError(
-                    "You denied the request. Run 'kadmon login grok' to try again."
-                ) from exc
-            if exc.code == "expired_token":
-                raise AuthError(
-                    "The code expired. Run 'kadmon login grok' to get a new one."
-                ) from exc
-            raise AuthError(f"xAI refused the sign-in: {exc}.") from exc
+            interval += _poll_wait(exc)
+            continue
         return _grant_from_payload(payload)
 
     raise AuthError("The code expired. Run 'kadmon login grok' to get a new one.")
 
 
+def _poll_wait(exc: OAuthError) -> int:
+    """Seconds to add to the poll interval. Raises AuthError when polling must stop."""
+    if exc.code == "authorization_pending":
+        return 0
+    if exc.code == "slow_down":
+        return 5
+    if exc.code == "access_denied":
+        raise AuthError("You denied the request. Run 'kadmon login grok' to try again.") from exc
+    if exc.code == "expired_token":
+        raise AuthError("The code expired. Run 'kadmon login grok' to get a new one.") from exc
+    raise AuthError(f"xAI refused the sign-in: {exc}.") from exc
+
+
 def refresh_grant(grant: Grant) -> Grant:
     """Trade the refresh token for a new access token, and store it.
 
-    A failure here means the grant is dead, not that the pool is spent. The
-    stored grant is cleared so nothing later reads it as live.
+    Only a rejected refresh token is a dead grant. A 5xx or 429 leaves the
+    stored session alone so a blip does not push the user onto a paid key.
     """
     if not grant.refresh_token:
         clear_grant()
@@ -247,8 +137,8 @@ def refresh_grant(grant: Grant) -> Grant:
             },
         )
     except _OAuthError as exc:
-        # xAI rejected the refresh token. The grant is dead, so drop it.
-        # A network failure is not a dead grant and propagates untouched.
+        if not is_dead_grant(exc.code):
+            raise AuthError(f"Cannot refresh the xAI Grok session: {exc}.") from exc
         clear_grant()
         raise AuthError(
             "Your xAI Grok session ended. Run 'kadmon login grok' to sign in again."
@@ -264,17 +154,8 @@ def refresh_grant(grant: Grant) -> Grant:
 
 
 def live_grant() -> Grant | None:
-    """Return a grant good to use right now, or None when not signed in.
-
-    Refreshes an access token that expires within `REFRESH_WINDOW` seconds. A
-    refresh failure raises `AuthError` after clearing the dead grant.
-    """
-    grant = load_grant()
-    if grant is None:
-        return None
-    if grant.expires_within(REFRESH_WINDOW):
-        return refresh_grant(grant)
-    return grant
+    """Return a grant good to use right now, or None when not signed in."""
+    return GrokVendor().live_grant()
 
 
 def _grant_from_payload(payload: dict) -> Grant:
@@ -310,43 +191,23 @@ def _account_from_payload(payload: dict) -> str:
     return str(claims.get("email") or claims.get("sub") or "")
 
 
-# --- HTTP ---
-
-
-class _OAuthError(Exception):
-    """An OAuth error response. `code` is the `error` field."""
-
-    def __init__(self, code: str, description: str = "") -> None:
-        super().__init__(description or code)
-        self.code = code
-
-
 def _post_form(url: str, fields: dict[str, str], timeout: float = 30.0) -> dict:
-    """POST a form and return the JSON body. Raises `_OAuthError` on an error body."""
-    body = urllib.parse.urlencode(fields).encode()
-    request = urllib.request.Request(url, data=body, headers=_FORM_HEADERS, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read())
-    except urllib.error.HTTPError as exc:
-        payload = _decode(exc.read())
-        raise _OAuthError(
-            str(payload.get("error", f"http_{exc.code}")),
-            str(payload.get("error_description", "")),
-        ) from exc
-    except (urllib.error.URLError, TimeoutError) as exc:
-        raise AuthError(f"Cannot reach {url}: {exc}.") from exc
-    except json.JSONDecodeError as exc:
-        raise AuthError(f"{url} returned a body that is not JSON.") from exc
-
-    if isinstance(payload, dict) and payload.get("error"):
-        raise _OAuthError(str(payload["error"]), str(payload.get("error_description", "")))
-    return payload
+    """Hook for tests. Production calls `post_form`."""
+    return post_form(url, fields, timeout=timeout)
 
 
-def _decode(raw: bytes) -> dict:
-    try:
-        payload = json.loads(raw)
-    except (ValueError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+class GrokVendor(Vendor):
+    """xAI Grok device-code sign-in. The only vendor with a verified live path."""
+
+    name = VENDOR
+    display_name = "xAI Grok"
+    tested = True
+    success_hint = "Runs now draw from your SuperGrok pool, not a console API key."
+
+    def login(self, show: Callable[[LoginPrompt], None]) -> Grant:
+        device = request_device_code()
+        show(LoginPrompt(url=device.url, user_code=device.user_code))
+        return poll_for_grant(device)
+
+    def refresh_grant(self, grant: Grant) -> Grant:
+        return refresh_grant(grant)

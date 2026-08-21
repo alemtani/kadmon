@@ -9,7 +9,7 @@ import tomllib
 import pytest
 from click.testing import CliRunner
 
-from kadmon.auth import xai
+from kadmon.auth import store, xai
 from kadmon.cli import main
 
 
@@ -23,7 +23,7 @@ def id_token(email: str) -> str:
 def token_store(tmp_path, monkeypatch):
     """Point the token store at a temp directory and stop the polling sleep."""
     path = tmp_path / "config" / "tokens.toml"
-    monkeypatch.setattr(xai, "TOKENS_PATH", path)
+    monkeypatch.setattr(store, "TOKENS_PATH", path)
     monkeypatch.setattr(time, "sleep", lambda _seconds: None)
     return path
 
@@ -208,6 +208,22 @@ def test_live_grant_survives_a_network_failure(token_store, monkeypatch):
         xai.live_grant()
 
     assert xai.load_grant() is not None
+
+
+def test_refresh_http_error_keeps_the_grant(token_store, monkeypatch):
+    """A 503 is not a rejected refresh token. Do not wipe the session."""
+    xai.save_grant(xai.Grant("stale", "refresh-1", int(time.time()) + 30, ""))
+
+    def _post_form(url, fields, timeout=30.0):
+        raise xai._OAuthError("http_503")
+
+    monkeypatch.setattr(xai, "_post_form", _post_form)
+
+    with pytest.raises(xai.AuthError, match="Cannot refresh"):
+        xai.live_grant()
+
+    assert xai.load_grant() is not None
+    assert xai.load_grant().access_token == "stale"
 
 
 # --- 12. login_when_already_signed_in_says_so ---

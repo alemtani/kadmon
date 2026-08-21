@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import NoReturn
 
 import click
 
@@ -545,65 +546,98 @@ def checkpoints():
     _print_checkpoints()
 
 
+class _VendorName(click.ParamType):
+    """A registered auth vendor. Resolved at parse time so new vendors appear."""
+
+    name = "vendor"
+
+    def convert(self, value, param, ctx):
+        from kadmon.auth import vendor_names
+
+        names = vendor_names()
+        if value in names:
+            return value
+        listed = ", ".join(names) or "(none registered)"
+        self.fail(f"{value!r} is not a known vendor. Choose one of: {listed}.", param, ctx)
+
+    def get_metavar(self, param, ctx=None):
+        return "VENDOR"
+
+
+def _show_login_prompt(prompt: object) -> None:
+    if prompt.url:
+        click.echo("\nOpen this URL to sign in:\n")
+        click.echo(f"  {prompt.url}\n")
+        if prompt.user_code:
+            click.echo(f"Then confirm this code: {prompt.user_code}\n")
+        click.echo("Waiting for you to approve...")
+        return
+    if prompt.message:
+        click.echo(prompt.message)
+
+
+def _die_auth(exc: BaseException) -> NoReturn:
+    click.echo(f"Error: {exc}", err=True)
+    raise SystemExit(1) from exc
+
+
 @main.command()
-@click.argument("vendor", type=click.Choice(["grok"]))
+@click.argument("vendor", type=_VendorName())
 def login(vendor: str):
-    """Sign in to a subscription you already pay for."""
-    from kadmon.auth import xai
+    """Sign in to a subscription you already pay for. VENDOR is grok today."""
+    from kadmon.auth import AuthError, get_vendor
+    from kadmon.auth import store as token_store
 
     try:
-        grant = xai.load_grant()
-    except xai.AuthError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        raise SystemExit(1) from exc
+        impl = get_vendor(vendor)
+        grant = impl.load_grant()
+    except AuthError as exc:
+        _die_auth(exc)
 
     if grant is not None:
-        who = grant.account or "your xAI account"
-        click.echo(f"Already signed in to xAI Grok as {who}.")
-        click.echo("Run 'kadmon logout grok' first to sign in as someone else.")
+        who = grant.account or f"your {impl.display_name} account"
+        click.echo(f"Already signed in to {impl.display_name} as {who}.")
+        click.echo(f"Run 'kadmon logout {impl.name}' first to sign in as someone else.")
         return
 
-    try:
-        device = xai.request_device_code()
-    except xai.AuthError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        raise SystemExit(1) from exc
-
-    click.echo("\nOpen this URL to sign in:\n")
-    click.echo(f"  {device.url}\n")
-    click.echo(f"Then confirm this code: {device.user_code}\n")
-    click.echo("Waiting for you to approve...")
+    if not impl.tested:
+        click.echo(
+            f"Note: {impl.display_name} sign-in is experimental and may not be fully tested."
+        )
 
     try:
-        grant = xai.poll_for_grant(device)
-        xai.save_grant(grant)
-    except xai.AuthError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        raise SystemExit(1) from exc
+        grant = impl.login(_show_login_prompt)
+        impl.save_grant(grant)
+    except AuthError as exc:
+        _die_auth(exc)
 
-    who = grant.account or "your xAI account"
-    click.echo(f"\n✓ Signed in to xAI Grok as {who}.")
-    click.echo(f"  Token stored in {xai.TOKENS_PATH}")
-    click.echo("  Runs now draw from your SuperGrok pool, not a console API key.")
+    who = grant.account or f"your {impl.display_name} account"
+    click.echo(f"\n✓ Signed in to {impl.display_name} as {who}.")
+    click.echo(f"  Token stored in {token_store.TOKENS_PATH}")
+    if impl.success_hint:
+        click.echo(f"  {impl.success_hint}")
 
 
 @main.command()
-@click.argument("vendor", type=click.Choice(["grok"]))
+@click.argument("vendor", type=_VendorName())
 def logout(vendor: str):
     """Sign out and delete the stored token."""
-    from kadmon.auth import xai
+    from kadmon.auth import AuthError, get_vendor
+    from kadmon.auth import store as token_store
 
     try:
-        grant = xai.load_grant()
+        impl = get_vendor(vendor)
+        grant = impl.load_grant()
         if grant is None:
-            click.echo("Not signed in to xAI Grok.")
+            click.echo(f"Not signed in to {impl.display_name}.")
             return
-        xai.clear_grant()
-    except xai.AuthError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        raise SystemExit(1) from exc
+        impl.clear_grant()
+    except AuthError as exc:
+        _die_auth(exc)
 
-    click.echo(f"Signed out of xAI Grok. The token is gone from {xai.TOKENS_PATH}.")
+    click.echo(
+        f"Signed out of {impl.display_name}. The token is gone from {token_store.TOKENS_PATH}."
+    )
 
 
 def _print_providers(repo_path: str, current: str = "") -> None:
