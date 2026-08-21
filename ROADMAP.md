@@ -1,52 +1,40 @@
 # Kadmon Roadmap
 
-Execution path behind [VISION.md](VISION.md) **v2 (August 2026)**. Measurement:
+Inventory of what has shipped and what is still missing. **The order of unshipped
+work is not decided.** Do not treat this file as the current queue.
+
+North star: [VISION.md](VISION.md) (v2). How we score:
 [docs/success-criteria.md](docs/success-criteria.md). Sign-in:
 [docs/subscription-auth.md](docs/subscription-auth.md).
 
-**Now:** subscription sign-in (Grok device-code first). Without it the agent is not
-usable for a user who already pays SuperGrok. Then the Task / Project loop against
-the scorecards. Cockpit and parity items below remain useful; they are not the
-north star anymore.
+One use-blocker is already known, independent of the rest of the list: without
+subscription sign-in, a SuperGrok user cannot run Kadmon without a second API
+meter. That is not the same as “this file’s horizons are the plan.”
 
-The landscape note in
-[docs/design/competitive-analysis.md](docs/design/competitive-analysis.md) is
-historical. Several cockpit gaps it lists have shipped.
+The Horizon 1–4 sections below are leftover sequencing from v1. Keep them as a
+catalog of real gaps. Re-prioritize against Vision 2 before building them.
+`[parity]` / `[wedge]` tags are historical labels from that document, not
+current priority.
 
-## How to read this
+Status markers: `✅ shipped` (in `main`, verified). Unmarked = not done.
+A line is done when the behavior is demonstrable, not when the code is written.
 
-- **No dates.** Horizons are ordered by leverage and dependency, not calendar. We execute fast;
-  sequencing matters, estimates don't.
-- **Two tracks run through every horizon.** `[parity]` items close the gap to table stakes;
-  `[wedge]` items sharpen the three differentiators into visible, measurable advantages.
-- **Grounded in today.** Each item names a real gap or a real piece of built-but-unfinished
-  machinery. Nothing here is speculative architecture.
-- A milestone is **done when it's verified** — tests pass and the behavior is demonstrable — not
-  when the code is written.
-- **Status markers:** `✅ shipped` (in `main`, verified), `🔨 in progress` (this batch), unmarked =
-  not started. Items keep their `[parity]`/`[wedge]` tags.
+## Shipped
 
-## Status & progress
-
-Newest first. Sequencing, not a changelog — see git history for detail.
-
-- **✅ Shipped (latest batch):** transparent context + cost budgeting (`/context` meter, `/cost`
-  with config-driven pricing) `[wedge]`; input ergonomics (readline history + multiline) `[parity]`;
-  safe repo-scoped git workflow tool `[parity]`.
-- **✅ Shipped (earlier):** verification-first inner loop (rollback + retry on verify failure)
-  `[wedge]`; rich rendering (colored diffs + syntax-highlighted code blocks) `[parity]`; in-chat
-  slash commands `[parity]`; streaming parity across all four providers `[parity]`.
-- **Next:** Grok subscription sign-in (`kadmon login`) so SuperGrok users are not billed a
-  second API meter. Spec: [docs/subscription-auth.md](docs/subscription-auth.md) and
-  [docs/design/p1/provider-oauth.md](docs/design/p1/provider-oauth.md).
-- **After that (cockpit leftovers):** tool-activity spinners/progress `[parity]`; the
-  "handing off now" moment + ask-vs-act framing `[wedge]`; verification evidence in the UI
-  `[wedge]`; MCP `[parity]`.
-- **Foundation (pre-roadmap):** ReAct loop with architect/editor phases, library team, dual-layer
-  persistence, autonomous handoff, checkpoints/rewind/rollback, symbol index, parallel workers,
-  eval harnesses.
+- ReAct loop, architect/editor, library team, dual-layer persistence, autonomous
+  handoff, checkpoints/rewind/rollback, symbol index, parallel workers, eval
+  harnesses (foundation).
+- Transparent context + cost (`/context`, `/cost` with config-driven pricing).
+- Input ergonomics (readline history + multiline).
+- Repo-scoped git tool (no push/PR).
+- Verification-first inner loop (rollback + retry on verify failure).
+- Rich rendering (colored diffs + syntax-highlighted code blocks).
+- In-chat slash commands.
+- Streaming on Anthropic, Bedrock, OpenAI, Gemini, Grok.
 
 ## Horizon 1 — Build the cockpit
+
+v1 inventory, not a queue. The engine already works; several cockpit items below have shipped.
 
 The engine already works; people bounce off the experience. This horizon makes Kadmon pleasant to
 live in, and — critically — makes the differentiators *visible*. Highest leverage, mostly parity.
@@ -132,15 +120,15 @@ Reach the autonomy surface the leaders are racing on — on our own local-first 
 
 ## Cross-cutting commitments
 
-- **Eval is proof.** Keep the Polyglot and SWE-bench harnesses green and use them as the public
-  measure of coding ability; pair them with the wedge metrics from Horizon 2.
-- **Local-first, predictable cost.** BYO-key, no mandatory phone-home, transparent token accounting.
-  As competitors move to opaque usage credits, this is a feature.
-- **Honest docs.** README, VISION, and this roadmap stay accurate to what actually ships. We don't
-  document aspirations as features.
+- **Eval is proof.** Score against [docs/success-criteria.md](docs/success-criteria.md), not
+  against SWE-bench Verified or Polyglot as a headline.
+- **Local-first, predictable cost.** Subscription sign-in where the vendor allows it; API key as
+  fallback. No mandatory phone-home. Transparent token accounting.
+- **Honest docs.** README and VISION stay accurate to what actually ships. This roadmap is an
+  inventory, not a promise of order.
 
 ## What we are deliberately not doing
 
-See [VISION.md](VISION.md#non-goals-so-we-stay-grounded) for the full list. In short: not an IDE,
-not cloud-mandatory, not "minimize questions," not lossy compaction as the primary strategy, not a
-context brute-force arms race, not user-maintained memory, not autonomy by silence.
+See [VISION.md](VISION.md#non-goals). In short: not an IDE, not cloud-mandatory, not
+"minimize questions," not lossy compaction as the primary strategy, not a context brute-force
+arms race, not user-maintained memory, not autonomy by silence.

@@ -76,7 +76,7 @@
   <p class="kicker">Kadmon working spec · 20 Aug 2026</p>
   <h1>How we know it is good</h1>
   <p class="lede">Each criterion names a source. The source is why the line exists — not a claim that Kadmon already meets it.</p>
-  <p class="meta">Adversarial review (earlier draft): Claude Opus 4.8 · Sign-in: <a href="subscription-auth.md">subscription-auth.md</a> (separate doc)</p>
+  <p class="meta">Sign-in: <a href="subscription-auth.md">subscription-auth.md</a> (separate doc)</p>
 
   <h2>Product</h2>
   <p>Kadmon is a teammate coding agent. You give it a Task or a Project. A Task comes back as a pull request that already passed the repo’s tests and an independent review. A Project stops for a design YES/NO, then those PRs. It asks only when direction is unclear. It writes skills that fire the next time. Cheap models do the work. Evals carry correctness.</p>
@@ -287,10 +287,6 @@ Layer B — public  <span class="hi">void unless same-model baseline row is pres
     <li>“Helped” on a single pair of Tasks</li>
   </ul>
 
-  <h2>What the adversarial review changed</h2>
-  <p>Opus 4.8 reviewed the previous draft. Accepted: same-model baseline or the card is void; T2 cannot hide deleted tests; T4+T6 cannot reward a toothless reviewer; G3 cannot claim causation on n=1; class from the diff; post-merge corrective PRs; Wilson intervals; second repo before a general Layer A claim; rounds independent of size.</p>
-  <p>This revision adds P6–P8 (context on long Projects) and replaces intuition-only rationale with the sources below. Sign-in is not scored here; it has its own doc so it does not share this context window.</p>
-
   <h2>References</h2>
   <ol class="refs">
     <li id="r1">Hamel Husain, <em>LLM Evals FAQ</em> — binary pass/fail over Likert; code assertions before LLM-as-judge. <a href="https://hamel.dev/blog/posts/evals-faq/">hamel.dev/blog/posts/evals-faq</a></li>
@@ -315,7 +311,7 @@ Layer B — public  <span class="hi">void unless same-model baseline row is pres
   <p class="note">In-repo: convo-agent <code>evals/coherence/</code> (V0) — a live watcher tag that never caught the gaming turn.</p>
 
   <footer>
-    Working spec. Not yet VISION.md. Grok wrote; Opus 4.8 reviewed an earlier draft; this revision adds sources and Project handoff lines. Sign-in is <a href="subscription-auth.md">subscription-auth.md</a>.
+    Working spec. Sign-in is <a href="subscription-auth.md">subscription-auth.md</a>. Known work (order not set): <a href="../ROADMAP.md">ROADMAP.md</a>.
   </footer>
 </div>
 </body>

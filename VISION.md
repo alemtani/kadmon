@@ -1,6 +1,6 @@
 # Kadmon Vision
 
-**Version 2 · August 2026.** This is the north star. Measurement: [docs/success-criteria.md](docs/success-criteria.md). Sign-in: [docs/subscription-auth.md](docs/subscription-auth.md). Execution: [ROADMAP.md](ROADMAP.md). Previous north star: [docs/design/vision-v1.md](docs/design/vision-v1.md).
+**Version 2 · August 2026.** This is the north star. Measurement: [docs/success-criteria.md](docs/success-criteria.md). Sign-in: [docs/subscription-auth.md](docs/subscription-auth.md). Known work (order not set): [ROADMAP.md](ROADMAP.md). Previous north star: [docs/design/vision-v1.md](docs/design/vision-v1.md).
 
 Kadmon is a teammate coding agent. You tell it what to do. You do not tell it which files to open. It asks when direction is unclear. It ships through the same gates a coworker would.
 

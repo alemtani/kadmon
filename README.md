@@ -13,7 +13,7 @@ A **Task** comes back as a PR. A **Project** stops for a design YES/NO, then tho
 - **[VISION.md](VISION.md)** — north star (v2, August 2026).
 - **[docs/success-criteria.md](docs/success-criteria.md)** — how we score it (workplace + public comparison).
 - **[docs/subscription-auth.md](docs/subscription-auth.md)** — sign in with the subscription you already pay for.
-- **[ROADMAP.md](ROADMAP.md)** — execution path. Sign-in is first so the agent is actually usable.
+- **[ROADMAP.md](ROADMAP.md)** — shipped work and known gaps. Order of unshipped work is not decided.
 - **[docs/design/competitive-analysis.md](docs/design/competitive-analysis.md)** — landscape (historical; some cockpit gaps listed there have since shipped).
 
 ## Install

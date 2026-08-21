@@ -1,7 +1,6 @@
 # Kadmon — How we know it is good
 
 Status: working spec, 2026-08-20.
-Adversarial review of an earlier draft: Claude Opus 4.8 (`docs/success-criteria-opus-review.md`).
 Sign-in / subscriptions: [`subscription-auth.md`](subscription-auth.md) (separate doc, separate context).
 
 This is the weekly score object. Each criterion names a **why** and a **source**. The source is the reason the line exists. It is not a claim that Kadmon already meets it.
@@ -166,16 +165,6 @@ If A is strong and B is weak: a workflow on one repo. If B is strong and A is we
 - Library file count
 - A dollar cap we set ourselves
 - “Helped” on a single pair of Tasks
-
----
-
-## What the adversarial review changed
-
-Claude Opus 4.8 reviewed the previous draft. Accepted blockers: the comparison card must include the same-model baseline or be void; T2 must not treat deleted tests as green; T4+T6 must not reward a toothless reviewer; G3 must not claim causation on n=1.
-
-Accepted majors: class from the diff; post-merge corrective PRs; Wilson intervals; a second repo before a general Layer A claim; round cap independent of size; P5 grep-able.
-
-This revision adds P6–P8 (context on long Projects) and replaces intuition-only rationale with sources below.
 
 ---
 
