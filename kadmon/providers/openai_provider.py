@@ -20,15 +20,22 @@ class OpenAIProvider:
         api_key: str = "",
         max_tokens: int = 8192,
         base_url: str = "",
+        default_headers: dict[str, str] | None = None,
     ) -> None:
         """Create an OpenAI-compatible client.
 
         A non-empty base_url points this at a compatible endpoint.
+        `default_headers` carries client identity. Keep credentials out of it —
+        `api_key` already becomes the one auth header.
         """
         self.model = model
         self.max_tokens = max_tokens
         self.base_url = base_url
-        self.client = openai.OpenAI(api_key=api_key, base_url=base_url or None)
+        self.client = openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url or None,
+            default_headers=default_headers or None,
+        )
 
     def complete(
         self, messages: list[Message], tools: list[dict] | None = None, system: str = ""
@@ -61,7 +68,9 @@ class OpenAIProvider:
         if tools:
             kwargs["tools"] = [self._convert_tool(t) for t in tools]
 
-        response_stream = self.client.chat.completions.create(**kwargs)
+        # Through _call_with_retry, not the client directly: a subclass that
+        # refreshes a token or stops on a spent pool must see this call too.
+        response_stream = self._call_with_retry(kwargs)
         yield from self._process_stream(response_stream)
 
     def _build_messages(self, messages: list[Message], system: str) -> list[dict]:

@@ -65,6 +65,20 @@ class ProviderConfig(BaseModel):
         spec = self.auth or f"env:{KIND_DEFAULTS[self.kind]['env']}"
         source, _, ref = spec.partition(":")
 
+        if source == "oauth":
+            # `oauth:` records where the credential came from. It is not a key
+            # source, and it is not what makes a subscription win — the factory
+            # checks the token store before it ever gets here. Reaching this
+            # point means the session is gone, so fall back to the key.
+            var = KIND_DEFAULTS[self.kind]["env"]
+            key = os.environ.get(var, "")
+            if not key:
+                raise ConfigError(
+                    f"Provider '{self.name}' signs in with OAuth, but you are not "
+                    f"signed in. Run 'kadmon login {ref}', or set {var}."
+                )
+            return key
+
         if source == "env":
             key = os.environ.get(ref, "")
         elif source == "credentials":
@@ -88,6 +102,32 @@ class ProviderConfig(BaseModel):
         return any(h in self.base_url for h in ("localhost", "127.0.0.1", "[::1]"))
 
 
+def stored_grok_grant():
+    """Return the stored Grok grant, or None.
+
+    Reads the token store and nothing else. It never refreshes and never asks
+    the network, so it is safe on any path that only needs to know whether a
+    subscription session exists. The factory does the refresh.
+    """
+    from kadmon.auth import xai
+
+    try:
+        return xai.load_grant()
+    except xai.AuthError:
+        # An unreadable store is not a live session. `login` reports the reason.
+        return None
+
+
+def grok_provider_config(name: str = "grok") -> "ProviderConfig":
+    """The provider a live Grok grant implies when config.toml names none."""
+    return ProviderConfig(
+        name=name,
+        kind=KIND_GROK,
+        model=KIND_DEFAULTS[KIND_GROK]["model"],
+        auth="oauth:grok",
+    )
+
+
 class Settings(BaseModel):
     """Merged configuration. `providers` may hold several entries at once."""
 
@@ -101,6 +141,13 @@ class Settings(BaseModel):
     def resolve(self, name: str = "") -> ProviderConfig:
         """Pick a provider by name, falling back to the configured default."""
         wanted = name or os.environ.get("KADMON_PROVIDER", "") or self.default
+
+        # A subscription session is enough to start from nothing. Synthesise the
+        # provider it implies when config.toml never named one.
+        no_grok_entry = not any(p.kind == KIND_GROK for p in self.providers.values())
+        asking_for_grok = not self.providers or wanted == KIND_GROK
+        if no_grok_entry and asking_for_grok and stored_grok_grant() is not None:
+            return grok_provider_config()
 
         if not self.providers:
             raise ConfigError("No providers configured. Run 'kadmon init' to set one up.")
@@ -190,6 +237,12 @@ def _build_providers(raw: dict) -> dict[str, ProviderConfig]:
             raise ConfigError(
                 f"Provider '{name}' has unknown kind '{kind}'. Use one of: {', '.join(KINDS)}."
             )
+        auth = entry.get("auth", "")
+        if auth.startswith("oauth:") and kind != KIND_GROK:
+            raise ConfigError(
+                f"Provider '{name}' has auth = \"{auth}\", but kind '{kind}' has no "
+                "sign-in. Only 'grok' does. Use \"env:VAR_NAME\" or \"credentials:name\"."
+            )
         if "api_key" in entry:
             raise ConfigError(
                 f"Provider '{name}' has an inline api_key. Keys belong in "
@@ -201,7 +254,7 @@ def _build_providers(raw: dict) -> dict[str, ProviderConfig]:
             kind=kind,
             model=entry.get("model") or KIND_DEFAULTS[kind]["model"],
             base_url=entry.get("base_url", ""),
-            auth=entry.get("auth", ""),
+            auth=auth,
             aws_region=entry.get("aws_region", DEFAULT_REGION),
             aws_profile=entry.get("aws_profile", ""),
         )

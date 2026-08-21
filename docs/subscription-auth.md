@@ -190,6 +190,19 @@ string in the binary, so the proxy appears to serve both, but Kadmon's
 chat-completions path over that host is **not** verified. Verify it in PR 2
 before trusting it.
 
+**Verified in PR 2: the proxy routes `/v1/chat/completions`.** An unauthenticated
+`POST` to it returns 401 with the proxy's own auth error
+(`Invalid or expired credentials (auth_kind=none, x_xai_token_auth=none, ...)`).
+A path the proxy does not serve returns 404 instead — `/v1/chat/completionsX`
+and `/v1/definitely-not-a-real-path` both do. `POST /v1/models` returns 405, so
+the router answers per method as well. The route exists and reaches xAI's
+auth check.
+
+Still unverified: an authenticated 200 over that route. Getting one needs a real
+token, and device-code sign-in needs a person at a browser. The chat-completions
+transport is right; a live call is the first thing to watch when someone runs
+`kadmon login grok` for real.
+
 **Pool-exhaustion status code: 402.** The CLI's own strings pair
 `run out of credits` with `status 402`, and a forced 402 renders as
 `API error (status 402 Payment Required)` and stops — the CLI does not retry
@@ -207,6 +220,10 @@ confirmed: whether an exhausted **weekly SuperGrok pool** specifically returns
 402 rather than 429. The account used for the spike was not exhausted, so this
 is inferred from the CLI's own error strings, not observed. If PR 2 can watch a
 real exhaustion, confirm it then.
+
+PR 2 could not watch one. The 402 is mocked in the tests and stays inferred.
+The handling is built so a wrong inference is cheap: 402 stops, 429 keeps the
+ordinary retry, and neither ever reaches for a key.
 
 ## Token lifecycle
 

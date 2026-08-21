@@ -58,6 +58,28 @@ def _env_candidate(
     )
 
 
+def _grok_candidate() -> Candidate:
+    """Grok is available when a subscription session exists, key or no key.
+
+    A signed-in user must never be told "XAI_API_KEY not set".
+    """
+    from kadmon.config import stored_grok_grant
+
+    grant = stored_grok_grant()
+    if grant is None:
+        return _env_candidate("grok", KIND_GROK, "xAI Grok")
+
+    who = grant.account or "your xAI account"
+    return Candidate(
+        name="grok",
+        kind=KIND_GROK,
+        label="xAI Grok",
+        available=True,
+        detail=f"signed in as {who} — runs on your SuperGrok pool",
+        auth="oauth:grok",
+    )
+
+
 def _aws_candidate() -> Candidate:
     aws_dir = Path.home() / ".aws"
     found = (aws_dir / "credentials").exists() or (aws_dir / "config").exists()
@@ -78,7 +100,7 @@ def discover() -> list[Candidate]:
     return [
         _env_candidate("anthropic", KIND_ANTHROPIC, "Anthropic"),
         _env_candidate("openai", KIND_OPENAI, "OpenAI"),
-        _env_candidate("grok", KIND_GROK, "xAI Grok"),
+        _grok_candidate(),
         _env_candidate("gemini", KIND_GEMINI, "Google Gemini"),
         _aws_candidate(),
     ]
